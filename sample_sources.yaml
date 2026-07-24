@@ -1,0 +1,116 @@
+sources:
+  - source_domain: arxiv.org
+    publisher: arXiv
+    source_category: academic
+    base_url: https://arxiv.org/search/
+    discovery_method: sitemap
+    access_method: public
+    authentication_required: false
+    robots_status: permissive
+    terms_status: open_access
+    license_notes: CC BY 4.0 for most papers
+    crawl_frequency: daily
+    rate_limit: 0.5
+    parser_type: html
+    priority: 1
+    reliability_tier: 1
+    enabled: true
+
+  - source_domain: mckinsey.com
+    publisher: McKinsey & Company
+    source_category: consulting
+    base_url: https://www.mckinsey.com/capabilities/operations/our-insights
+    discovery_method: sitemap
+    access_method: public
+    authentication_required: false
+    robots_status: permissive
+    terms_status: permit_with_attribution
+    license_notes: Republish with attribution only
+    crawl_frequency: weekly
+    rate_limit: 2.0
+    parser_type: html
+    priority: 2
+    reliability_tier: 2
+    enabled: true
+
+  - source_domain: gartner.com
+    publisher: Gartner
+    source_category: industry_research
+    base_url: https://www.gartner.com/en/research
+    discovery_method: rss
+    access_method: public
+    authentication_required: true
+    robots_status: restrictive
+    terms_status: subscriber_only
+    license_notes: Client access required
+    crawl_frequency: weekly
+    rate_limit: 3.0
+    parser_type: html
+    priority: 3
+    reliability_tier: 1
+    enabled: false
+
+  - source_domain: bcg.com
+    publisher: Boston Consulting Group
+    source_category: consulting
+    base_url: https://www.bcg.com/publications
+    discovery_method: sitemap
+    access_method: public
+    authentication_required: false
+    robots_status: permissive
+    terms_status: permit_with_attribution
+    crawl_frequency: weekly
+    rate_limit: 2.0
+    parser_type: html
+    priority: 2
+    reliability_tier: 2
+    enabled: true
+
+  - source_domain: none
+    publisher: US Securities and Exchange Commission
+    source_category: regulatory
+    base_url: https://www.sec.gov/cgi-bin/browse-edgar
+    discovery_method: api
+    access_method: public
+    authentication_required: false
+    robots_status: permissive
+    terms_status: public_domain
+    crawl_frequency: daily
+    rate_limit: 10.0
+    parser_type: html
+    priority: 1
+    reliability_tier: 1
+    enabled: true
+
+  - source_domain: techvendor.com
+    publisher: TechVendor Inc.
+    source_category: vendor
+    base_url: https://techvendor.com/resources/case-studies
+    discovery_method: sitemap
+    access_method: public
+    authentication_required: false
+    robots_status: permissive
+    terms_status: marketing_content
+    license_notes: Vendor marketing material
+    crawl_frequency: weekly
+    rate_limit: 1.0
+    parser_type: html
+    priority: 5
+    reliability_tier: 4
+    enabled: true
+
+  - source_domain: none
+    publisher: US Federal Register
+    source_category: government
+    base_url: https://www.federalregister.gov/
+    discovery_method: api
+    access_method: public
+    authentication_required: false
+    robots_status: permissive
+    terms_status: public_domain
+    crawl_frequency: daily
+    rate_limit: 5.0
+    parser_type: html
+    priority: 1
+    reliability_tier: 1
+    enabled: true
