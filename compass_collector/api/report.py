@@ -110,7 +110,7 @@ def _exec_summary_section(data: dict) -> str:
 
     return f"""
     <div class="summary-box">
-      <p><strong>Recommended intervention:</strong> {_v(action)}</p>
+      <p><strong>Evidence-supported intervention:</strong> {_v(action)}</p>
       <p><strong>Category:</strong> {_v(category)}</p>
       {f'<p><strong>Description:</strong> {_v(subtitle)}</p>' if subtitle else ''}
       <p><strong>Confidence:</strong> {_pct(confidence.get("score", 0))} ({_v(confidence.get("label", ""))})</p>
@@ -165,7 +165,7 @@ def _why_ranked_first_section(data: dict) -> str:
     if not wrf:
         return ""
 
-    parts = [f"<h2>Why This Ranked First</h2>"]
+    parts = [f"    <h2>Why This Path Ranks First</h2>"]
 
     if wrf.get("summary"):
         parts.append(f"<p>{_v(wrf['summary'])}</p>")
@@ -183,7 +183,7 @@ def _why_ranked_first_section(data: dict) -> str:
         parts.append("</ul>")
 
     if wrf.get("alternative_differences"):
-        parts.append("<h3>How it compares to alternatives</h3>")
+        parts.append("<h3>Evidence comparison</h3>")
         for alt in wrf["alternative_differences"]:
             reasons = "; ".join(alt.get("reasons", []))
             when = alt.get("when_to_consider", "")
@@ -221,7 +221,7 @@ def _alternative_comparison_section(data: dict) -> str:
         return ""
 
     return f"""
-    <h2>Alternatives Evaluated</h2>
+    <h2>Other Paths Evaluated</h2>
     <table>
       <tr><th>Intervention</th><th>Evidence</th><th>Outcome support</th><th>Complexity</th><th>Timeline</th><th>Why ranked here</th></tr>
       {''.join(rows)}
@@ -276,7 +276,7 @@ def _risks_section(data: dict) -> str:
         """)
 
     return f"""
-    <h2>Potential Risks and Mitigations</h2>
+    <h2>Risk Assessment</h2>
     <div>{"".join(boxes)}</div>
     """
 
@@ -323,7 +323,7 @@ def _next_step_section(data: dict) -> str:
 
     return f"""
     <div class="next-box">
-      <h3>Recommended Next Step</h3>
+      <h3>Next Step</h3>
       <p><strong>{_v(ns.get('action', ''))}</strong></p>
       {f'<p>Purpose: {_v(ns.get("purpose", ""))}</p>' if ns.get('purpose') else ''}
       {f'<p class="detail">Owner: {_v(ns.get("owner", ""))} | Duration: {_v(ns.get("duration", ""))}</p>' if ns.get('owner') or ns.get('duration') else ''}
@@ -376,27 +376,25 @@ def generate_report_html(data: dict) -> str:
 <h1>Executive Summary</h1>
 {_exec_summary_section(data)}
 
-<h2>Recommended Path</h2>
+<h2>Evidence-Supported Path</h2>
 {_outcome_ranges_section(data)}
 
-<h2>Why This Path Ranked First</h2>
+<h2>Why This Path Ranks First</h2>
 {_why_ranked_first_section(data)}
 
 <div class="page-break"></div>
-<h2>Alternatives Evaluated</h2>
-{_alternative_comparison_section(data)}
+ {_alternative_comparison_section(data)}
 
 <h2>Comparable Implementations</h2>
 {_comparables_section(data)}
 
 <div class="page-break"></div>
-<h2>Risks and Mitigations</h2>
-{_risks_section(data)}
+ {_risks_section(data)}
 
 <h2>Assumptions and Information Gaps</h2>
 {_assumptions_gaps_section(data)}
 
-<h2>Recommended Next Step</h2>
+<h2>Next Step</h2>
 {_next_step_section(data)}
 
 {_methodology_section(data)}
