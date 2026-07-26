@@ -45,51 +45,53 @@ _STYLES = """
 <style>
   @page {
     size: letter;
-    margin: 0.75in 0.75in 1in 0.75in;
-    @bottom-center { content: counter(page) " of " counter(pages); font-size: 8pt; color: #888; }
+    margin: 0.9in 0.85in 1in 0.85in;
+    @bottom-center { content: counter(page); font-size: 8pt; color: #999; font-family: Georgia, "Times New Roman", serif; }
   }
   * { box-sizing: border-box; }
-  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 10pt; line-height: 1.5; color: #1a1f2b; margin: 0; padding: 0; }
-  h1 { font-size: 18pt; font-weight: 800; margin: 0 0 4pt 0; letter-spacing: -0.02em; color: #0f172a; }
-  h2 { font-size: 13pt; font-weight: 800; margin: 24pt 0 8pt 0; color: #0f172a; border-bottom: 1.5pt solid #e2e8f0; padding-bottom: 4pt; }
-  h3 { font-size: 10.5pt; font-weight: 700; margin: 16pt 0 6pt 0; color: #334155; }
-  p { margin: 0 0 6pt 0; color: #475569; }
-  .meta { font-size: 8.5pt; color: #64748b; margin-bottom: 16pt; }
-  .meta span { display: inline-block; margin-right: 18pt; }
-  .summary-box { background: #f8fafc; border: 1pt solid #e2e8f0; border-radius: 6pt; padding: 12pt 14pt; margin-bottom: 14pt; }
-  .summary-box p { font-size: 9.5pt; margin: 2pt 0; }
-  .summary-box strong { color: #0f172a; }
-  .outcome-grid { display: flex; flex-wrap: wrap; gap: 8pt; margin-bottom: 14pt; }
-  .outcome-card { background: #f1f5f9; border: 1pt solid #e2e8f0; border-radius: 5pt; padding: 8pt 12pt; flex: 1 0 160pt; }
-  .outcome-card .value { font-size: 14pt; font-weight: 800; color: #0f172a; }
-  .outcome-card .label { font-size: 7.5pt; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1pt; }
-  .outcome-card .count { font-size: 7pt; color: #94a3b8; margin-top: 1pt; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 14pt; font-size: 9pt; }
-  th { background: #f1f5f9; text-align: left; padding: 6pt 8pt; font-weight: 700; color: #334155; border-bottom: 1.5pt solid #e2e8f0; }
-  td { padding: 5pt 8pt; border-bottom: 1pt solid #e2e8f0; color: #475569; }
-  .tier-gold { background: #fefce8; color: #a16207; font-size: 7pt; font-weight: 700; padding: 1pt 5pt; border-radius: 3pt; border: 1pt solid #fde68a; }
-  .tier-silver { background: #f1f5f9; color: #475569; font-size: 7pt; font-weight: 700; padding: 1pt 5pt; border-radius: 3pt; border: 1pt solid #cbd5e1; }
-  .tier-bronze { background: #fff7ed; color: #c2410c; font-size: 7pt; font-weight: 700; padding: 1pt 5pt; border-radius: 3pt; border: 1pt solid #fed7aa; }
-  .risk-box { background: #fef2f2; border: 1pt solid #fecaca; border-radius: 5pt; padding: 8pt 12pt; margin-bottom: 8pt; }
-  .risk-box h4 { font-size: 9.5pt; font-weight: 700; color: #991b1b; margin: 0 0 3pt 0; }
-  .risk-box p { font-size: 8.5pt; color: #7f1d1d; margin: 0 0 2pt 0; }
-  .risk-box .mitigation { font-size: 8pt; color: #166534; font-weight: 600; }
-  .gap-box { background: #f8fafc; border: 1pt solid #e2e8f0; border-radius: 5pt; padding: 8pt 12pt; margin-bottom: 6pt; }
-  .gap-box h4 { font-size: 9pt; font-weight: 700; color: #0f172a; margin: 0 0 2pt 0; }
-  .gap-box p { font-size: 8pt; color: #475569; margin: 0; }
-  .next-box { background: #f0fdf4; border: 1.5pt solid #86efac; border-radius: 6pt; padding: 12pt 14pt; margin: 16pt 0; }
-  .next-box h3 { font-size: 11pt; font-weight: 800; color: #166534; margin: 0 0 4pt 0; }
-  .next-box p { font-size: 9pt; color: #166534; margin: 0 0 2pt 0; }
-  .next-box .detail { font-size: 8pt; color: #4ade80; }
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9.5pt; line-height: 1.6; color: #1a1f2b; margin: 0; padding: 0; }
+  h1 { font-family: Georgia, "Times New Roman", serif; font-size: 20pt; font-weight: 700; margin: 0 0 6pt 0; color: #0f172a; }
+  h2 { font-family: Georgia, "Times New Roman", serif; font-size: 14pt; font-weight: 700; margin: 28pt 0 10pt 0; color: #0f172a; border-bottom: 1.5pt solid #d0d5dd; padding-bottom: 6pt; }
+  h3 { font-family: Georgia, "Times New Roman", serif; font-size: 11pt; font-weight: 700; margin: 18pt 0 8pt 0; color: #344054; }
+  p { margin: 0 0 8pt 0; color: #475467; line-height: 1.6; }
+  .logo { font-family: Georgia, "Times New Roman", serif; font-size: 16pt; font-weight: 700; color: #2D6A4F; margin-bottom: 4pt; }
+  .meta { font-size: 8pt; color: #98a2b3; margin-bottom: 20pt; border-bottom: 1pt solid #eaecf0; padding-bottom: 12pt; }
+  .meta span { display: inline-block; margin-right: 20pt; }
+  .summary-box { background: #f9fafb; border: 1pt solid #eaecf0; padding: 14pt 16pt; margin-bottom: 16pt; }
+  .summary-box p { font-size: 9.5pt; margin: 3pt 0; }
+  .summary-box strong { color: #1d2939; }
+  .outcome-grid { display: flex; flex-wrap: wrap; gap: 10pt; margin-bottom: 16pt; }
+  .outcome-card { background: #f9fafb; border: 1pt solid #eaecf0; padding: 10pt 14pt; flex: 1 0 170pt; }
+  .outcome-card .value { font-family: Georgia, "Times New Roman", serif; font-size: 15pt; font-weight: 700; color: #1d2939; }
+  .outcome-card .label { font-size: 7pt; font-weight: 700; color: #667085; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2pt; }
+  .outcome-card .count { font-size: 7pt; color: #98a2b3; margin-top: 1pt; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16pt; font-size: 8.5pt; }
+  th { background: #f9fafb; text-align: left; padding: 7pt 9pt; font-weight: 700; color: #344054; border-bottom: 1.5pt solid #d0d5dd; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.05em; }
+  td { padding: 6pt 9pt; border-bottom: 1pt solid #eaecf0; color: #475467; }
+  .tier-gold { background: #fffaeb; color: #b54708; font-size: 6.5pt; font-weight: 700; padding: 2pt 6pt; border: 1pt solid #fedf89; }
+  .tier-silver { background: #f2f4f7; color: #475467; font-size: 6.5pt; font-weight: 700; padding: 2pt 6pt; border: 1pt solid #d0d5dd; }
+  .tier-bronze { background: #fff6ed; color: #c4320a; font-size: 6.5pt; font-weight: 700; padding: 2pt 6pt; border: 1pt solid #fed7aa; }
+  .risk-box { background: #fef3f2; border: 1pt solid #fecdca; padding: 10pt 14pt; margin-bottom: 10pt; }
+  .risk-box h4 { font-family: Georgia, "Times New Roman", serif; font-size: 10pt; font-weight: 700; color: #912018; margin: 0 0 4pt 0; }
+  .risk-box p { font-size: 8.5pt; color: #912018; margin: 0 0 3pt 0; }
+  .risk-box .mitigation { font-size: 8pt; color: #2D6A4F; font-weight: 600; }
+  .gap-box { background: #f9fafb; border: 1pt solid #eaecf0; padding: 10pt 14pt; margin-bottom: 8pt; }
+  .gap-box h4 { font-size: 9pt; font-weight: 700; color: #1d2939; margin: 0 0 3pt 0; }
+  .gap-box p { font-size: 8pt; color: #475467; margin: 0; }
+  .next-box { background: #f0fdf4; border: 1.5pt solid #86efac; padding: 14pt 16pt; margin: 18pt 0; }
+  .next-box h3 { font-family: Georgia, "Times New Roman", serif; font-size: 12pt; font-weight: 700; color: #166534; margin: 0 0 6pt 0; }
+  .next-box p { font-size: 9pt; color: #166534; margin: 0 0 3pt 0; }
+  .next-box .detail { font-size: 8pt; color: #15803d; }
   .page-break { page-break-before: always; }
-  ul { margin: 4pt 0 8pt 0; padding-left: 16pt; }
-  li { margin-bottom: 2pt; font-size: 9pt; color: #475569; }
-  .comparables-grid { margin-bottom: 14pt; }
-  .comparable-card { border: 1pt solid #e2e8f0; border-radius: 5pt; padding: 8pt 12pt; margin-bottom: 6pt; }
-  .comparable-card .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4pt; }
-  .comparable-card .org { font-weight: 700; font-size: 9.5pt; color: #0f172a; }
-  .comparable-card .detail { font-size: 8.5pt; color: #475569; margin: 1pt 0; }
-  .comparable-card .limitation { font-size: 7.5pt; color: #94a3b8; font-style: italic; }
+  ul { margin: 4pt 0 10pt 0; padding-left: 18pt; }
+  li { margin-bottom: 3pt; font-size: 9pt; color: #475467; }
+  .comparables-grid { margin-bottom: 16pt; }
+  .comparable-card { border: 1pt solid #eaecf0; padding: 10pt 14pt; margin-bottom: 8pt; }
+  .comparable-card .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5pt; }
+  .comparable-card .org { font-weight: 700; font-size: 9.5pt; color: #1d2939; }
+  .comparable-card .detail { font-size: 8.5pt; color: #475467; margin: 1pt 0; }
+  .comparable-card .limitation { font-size: 7.5pt; color: #98a2b3; font-style: italic; }
+  .footer-note { border-top: 1pt solid #eaecf0; padding-top: 10pt; margin-top: 24pt; font-size: 7.5pt; color: #98a2b3; }
 </style>
 """
 
@@ -361,34 +363,47 @@ def generate_report_html(data: dict) -> str:
     workflow = data.get("assessment_summary", {}).get("workflow", "").replace("_", " ")
 
     return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Compass Recommendation Report</title>{_STYLES}</head><body>
+<html><head><meta charset="utf-8"><title>Compass \u2014 Recommendation Report</title>{_STYLES}</head><body>
 
-<h1>Compass Recommendation</h1>
+<div class="logo">Compass</div>
 <div class="meta">
-  <span>Generated: {_v(date_str)}</span>
-  <span>Problem: {_v(problem)}</span>
+  <span>Prepared: {_v(date_str)}</span>
   <span>Workflow: {_v(workflow)}</span>
-  <span>Category: {_v(category)}</span>
+  <span>Intervention category: {_v(category)}</span>
+  <span>Engine: {_v(data.get('engine_version', ''))} | Dataset: {_v(data.get('dataset_version', ''))}</span>
 </div>
 
+<h1>Executive Summary</h1>
 {_exec_summary_section(data)}
 
+<h2>Recommended Path</h2>
 {_outcome_ranges_section(data)}
 
+<h2>Why This Path Ranked First</h2>
 {_why_ranked_first_section(data)}
 
 <div class="page-break"></div>
+<h2>Alternatives Evaluated</h2>
 {_alternative_comparison_section(data)}
 
+<h2>Comparable Implementations</h2>
 {_comparables_section(data)}
 
+<div class="page-break"></div>
+<h2>Risks and Mitigations</h2>
 {_risks_section(data)}
 
+<h2>Assumptions and Information Gaps</h2>
 {_assumptions_gaps_section(data)}
 
+<h2>Recommended Next Step</h2>
 {_next_step_section(data)}
 
 {_methodology_section(data)}
+
+<div class="footer-note">
+  This report was generated from the Compass evidence graph. Findings are based on comparable real-world implementations and the information provided during assessment. Outcomes observed in comparable organizations do not guarantee identical results.
+</div>
 
 </body></html>"""
 

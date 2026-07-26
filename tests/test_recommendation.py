@@ -226,7 +226,7 @@ class TestReportGeneration(unittest.TestCase):
         }
         html = generate_report_html(data)
         self.assertTrue(len(html) > 0)
-        self.assertIn("Compass Recommendation", html)
+        self.assertIn("Executive Summary", html)
         self.assertIn("Automate intake routing", html)
 
 
