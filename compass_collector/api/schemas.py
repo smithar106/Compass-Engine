@@ -173,6 +173,12 @@ class ImpactSummary(BaseModel):
     project_team: ProjectTeam = Field(default_factory=ProjectTeam)
 
 
+class AlternativeConsidered(BaseModel):
+    family: str
+    reason: str = ""
+    confidence_score: float = 0
+
+
 class SpecificIntervention(BaseModel):
     title: str = ""
     description: str = ""
@@ -208,12 +214,6 @@ class Recommendation(BaseModel):
     assumptions_detail: list[Assumption] = []
     information_gaps: list[InformationGap] = []
     next_validation_step: Optional[NextValidationStep] = None
-
-
-class AlternativeConsidered(BaseModel):
-    family: str
-    reason: str = ""
-    confidence_score: float = 0
 
 
 class RecommendationResponse(BaseModel):
