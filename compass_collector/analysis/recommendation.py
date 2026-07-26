@@ -111,10 +111,24 @@ def recommend(
         top_summaries = []
         for r in top_results:
             top_summaries.append({
-                "organization": r["organization"],
-                "summary": r["summary"],
+                "id": r.get("id", ""),
+                "organization": r.get("organization", "Unknown"),
+                "intervention": r.get("intervention", ""),
+                "intervention_families": r.get("intervention_families", []),
+                "summary": r.get("summary", ""),
+                "outcome_summaries": r.get("outcome_summaries", []),
                 "outcomes": r.get("outcome_summaries", []),
-                "similarity": r["similarity_score"],
+                "similarity": r.get("similarity_score", 0),
+                "similarity_score": r.get("similarity_score", 0),
+                "similarity_breakdown": r.get("similarity_breakdown", {}),
+                "employee_count": r.get("employee_count"),
+                "status": r.get("status", "unknown"),
+                "vendor_reported": r.get("vendor_reported", False),
+                "independently_verified": r.get("independently_verified", False),
+                "negatives": r.get("negatives", []),
+                "evidence_score": r.get("evidence_score", 50),
+                "cost_savings": r.get("cost_savings"),
+                "implementation_time": r.get("implementation_time"),
             })
 
         recommended.append({

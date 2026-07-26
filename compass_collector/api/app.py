@@ -1,4 +1,5 @@
 import logging
+import sys
 from fastapi import FastAPI
 from compass_collector.api.schemas import InvestigationRequest, RecommendationResponse
 from compass_collector.api.service import run_recommendation
@@ -26,37 +27,57 @@ def startup_log():
     logger.info(f"Database exists: {db_path.exists()}")
     if db_path.exists():
         logger.info(f"Database size: {db_path.stat().st_size / 1024 / 1024:.1f} MB")
+        logger.info(f"Database modified: {db_path.stat().st_mtime}")
     else:
-        # Try to download from GitHub LFS if volume masks it
         import urllib.request
         urls = [
             "https://media.githubusercontent.com/media/smithar106/Compass-Engine/main/data/collector_v3.db",
             "https://raw.githubusercontent.com/smithar106/Compass-Engine/main/data/collector_v3.db",
         ]
+        downloaded = False
         for url in urls:
             try:
                 logger.info(f"Attempting download from: {url}")
                 urllib.request.urlretrieve(url, str(db_path))
-                if db_path.exists():
+                if db_path.exists() and db_path.stat().st_size > 0:
                     logger.info(f"Downloaded collector_v3.db ({db_path.stat().st_size / 1024 / 1024:.1f} MB)")
+                    downloaded = True
                     break
             except Exception as dl_e:
                 logger.warning(f"Download failed: {dl_e}")
+        if not downloaded or not db_path.exists():
+            logger.error("FATAL: Could not download collector_v3.db. Engine cannot start without a database.")
+            sys.exit(1)
+
     session = None
     try:
         session = get_session()
         total = session.query(InterventionRecord).count()
-        successful = session.query(InterventionRecord).filter(
-            InterventionRecord.result_status == "successful"
+        if total == 0:
+            logger.error("FATAL: Database is empty. Engine cannot start without records.")
+            sys.exit(1)
+
+        tier1 = session.query(InterventionRecord).filter(
+            InterventionRecord.result_status.in_(["successful", "partial"])
         ).count()
-        failed = session.query(InterventionRecord).filter(
+        tier2 = session.query(InterventionRecord).filter(
+            InterventionRecord.result_status == "unknown"
+        ).count()
+        tier3 = session.query(InterventionRecord).filter(
             InterventionRecord.result_status.in_(["failed", "abandoned"])
         ).count()
+        source_generations = session.query(
+            InterventionRecord.extraction_model
+        ).distinct().all()
         logger.info(f"Total records: {total}")
-        logger.info(f"  Successful: {successful}")
-        logger.info(f"  Failed/Abandoned: {failed}")
+        logger.info(f"  Tier 1 (successful/partial): {tier1}")
+        logger.info(f"  Tier 2 (unknown): {tier2}")
+        logger.info(f"  Tier 3 (failed/abandoned): {tier3}")
+        logger.info(f"  Source generations: {[g[0] for g in source_generations if g[0]]}")
+        logger.info(f"  Schema version: v3")
     except Exception as e:
-        logger.warning(f"Could not query database: {e}")
+        logger.error(f"FATAL: Could not query database: {e}")
+        sys.exit(1)
     finally:
         if session:
             session.close()
@@ -75,47 +96,4 @@ def health():
 
 @app.post("/api/recommendations", response_model=RecommendationResponse)
 def create_recommendation(req: InvestigationRequest):
-    return run_recommendation(req)
-
-
-@app.post("/api/recommendations/demo", response_model=RecommendationResponse)
-def demo_recommendation(scenario_name: str = ""):
-    scenarios = {
-        "cloud_cost": InvestigationRequest(
-            workflow="cloud_infrastructure_management",
-            business_function="operations",
-            industry="technology",
-            company_size="500",
-            desired_outcome="cost",
-        ),
-        "support_automation": InvestigationRequest(
-            workflow="ticketing",
-            business_function="customer_support",
-            industry="saas",
-            company_size="200",
-            desired_outcome="response_time",
-        ),
-        "invoice_processing": InvestigationRequest(
-            workflow="invoice_processing",
-            business_function="finance",
-            industry="financial_services",
-            company_size="1000",
-            desired_outcome="cost",
-        ),
-        "lead_qualification": InvestigationRequest(
-            workflow="lead_qualification",
-            business_function="sales",
-            industry="technology",
-            company_size="300",
-            desired_outcome="conversion_rate",
-        ),
-        "hr_onboarding": InvestigationRequest(
-            workflow="onboarding",
-            business_function="human_resources",
-            industry="healthcare",
-            company_size="2000",
-            desired_outcome="time",
-        ),
-    }
-    req = scenarios.get(scenario_name, scenarios["lead_qualification"])
     return run_recommendation(req)
