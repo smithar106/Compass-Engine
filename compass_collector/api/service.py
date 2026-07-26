@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -254,6 +255,19 @@ def _build_alternatives(interventions: list, skip_idx: int) -> list[AlternativeC
     return alts
 
 
+_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)")
+
+
+def _extract_pct(text: str) -> Optional[float]:
+    m = _NUM_RE.search(text)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 def _build_impact_and_timeline(
     tiered_comparables: list, inv: dict, req: InvestigationRequest = None
 ) -> tuple[ProjectedImpact, Timeline, Optional[dict], Optional[dict]]:
@@ -263,15 +277,12 @@ def _build_impact_and_timeline(
     for c in tiered_comparables:
         if c.outcome:
             for part in c.outcome.split(";"):
-                if "%" in part:
-                    try:
-                        num_str = part.split(":")[-1].strip().replace("%", "").replace("+", "").replace("-", "")
-                        v = float(num_str)
+                if "%" in part or "percent" in part.lower():
+                    v = _extract_pct(part)
+                    if v is not None and v <= 500:
                         impact_scores.append(v)
                         if c.evidence_tier in ("gold", "silver"):
                             savings_values.append(v)
-                    except (ValueError, IndexError):
-                        pass
 
     has_quantified = bool(impact_scores)
     total = len(tiered_comparables)
