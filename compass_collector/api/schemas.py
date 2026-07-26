@@ -95,7 +95,11 @@ class Recommendation(BaseModel):
     negative_evidence: list[NegativeEvidence] = []
     alternatives_considered: list[AlternativeConsidered] = []
     assumptions: list[str] = []
-    risks: list[str] = []
+    risks: list[dict] = []
+    annual_savings: Optional[dict] = None
+    hours_returned: Optional[dict] = None
+    tools: list[str] = []
+    subtitle: str = ""
 
 
 class RecommendationResponse(BaseModel):

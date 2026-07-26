@@ -80,7 +80,8 @@ def classify_tier_for_comparable(comparable: dict) -> str:
     if not org or any(k in org_lower for k in ["university", "college", "research"]):
         return EVIDENCE_TIER_BRONZE
 
-    has_outcome = bool(comparable.get("outcome_summaries"))
+    outcomes = comparable.get("outcomes") or comparable.get("outcome_summaries") or []
+    has_outcome = bool(outcomes)
     status = comparable.get("status", "unknown")
     similarity = comparable.get("similarity_score", 0)
     negatives = comparable.get("negatives", [])
