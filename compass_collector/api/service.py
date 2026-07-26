@@ -1,6 +1,7 @@
 import re
 import uuid
 import math
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -1394,7 +1395,7 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
         f"workflow fit, outcome consistency, and organizational similarity."
     )
 
-    return RecommendationResponse(
+    response = RecommendationResponse(
         recommendation_id=run_id,
         status="complete",
         engine_version="3.0.0",
@@ -1414,6 +1415,15 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
         information_gaps=top_rec.information_gaps if top_rec else [],
         next_validation_steps=[top_rec.next_validation_step] if top_rec and top_rec.next_validation_step else [],
     )
+
+    try:
+        from compass_collector.api.storage import save_recommendation
+        save_recommendation(response)
+    except Exception:
+        logger = logging.getLogger("compass-engine")
+        logger.warning("Failed to persist recommendation result", exc_info=True)
+
+    return response
 
 
 def _infer_workflow(business_function: str) -> str:

@@ -8,3 +8,4 @@ httpx
 numpy
 pandas
 scikit-learn
+weasyprint

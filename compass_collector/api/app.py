@@ -1,8 +1,12 @@
 import logging
 import sys
-from fastapi import FastAPI
+from datetime import datetime
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, Response
 from compass_collector.api.schemas import InvestigationRequest, RecommendationResponse
 from compass_collector.api.service import run_recommendation
+from compass_collector.api.storage import load_recommendation
+from compass_collector.api.report import generate_report_html, generate_report_pdf
 from compass_collector.database import get_session
 from compass_collector.models.intervention import InterventionRecord
 from compass_collector.config.settings import DATA_DIR, DATABASE_URL
@@ -97,3 +101,33 @@ def health():
 @app.post("/api/recommendations", response_model=RecommendationResponse)
 def create_recommendation(req: InvestigationRequest):
     return run_recommendation(req)
+
+
+@app.get("/api/recommendations/{rec_id}/report", response_class=HTMLResponse)
+def get_report_html(rec_id: str):
+    data = load_recommendation(rec_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    html = generate_report_html(data)
+    return html
+
+
+@app.get("/api/recommendations/{rec_id}/report.pdf")
+def get_report_pdf(rec_id: str):
+    data = load_recommendation(rec_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+
+    pdf_bytes = generate_report_pdf(data)
+    if pdf_bytes is None:
+        html = generate_report_html(data)
+        return HTMLResponse(content=html)
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="compass-recommendation-{today}.pdf"',
+        },
+    )
