@@ -94,6 +94,13 @@ def health():
     }
 
 
-@app.post("/api/recommendations", response_model=RecommendationResponse)
+@app.post("/api/recommendations")
 def create_recommendation(req: InvestigationRequest):
-    return run_recommendation(req)
+    import traceback
+    try:
+        result = run_recommendation(req)
+        return RecommendationResponse(**result.model_dump())
+    except Exception as e:
+        logger.error(f"Recommendation failed: {e}")
+        logger.error(traceback.format_exc())
+        return {"error": str(e), "type": "engine_error"}
