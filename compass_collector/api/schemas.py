@@ -28,17 +28,24 @@ class ComparableEvidence(BaseModel):
     geography: str = ""
     organization_size: Optional[int] = 0
     workflow: str = ""
+    problem: str = ""
     workflow_context: str = ""
     intervention: str
+    intervention_category: str = ""
     intervention_description: str = ""
+    implementation_status: str = ""
+    observed_outcome: str = ""
     outcome_summary: str = ""
     normalized_metrics: list[dict] = []
     evidence_tier: str = "bronze"
+    evidence_score: float = 0
     similarity_score: float = 0
     similarity_dimensions: dict = {}
+    relevance_explanation: str = ""
+    limitations: str = ""
     source_title: str = ""
     source_url: str = ""
-    relevance_explanation: str = ""
+    publication_date: str = ""
 
 
 class NegativeEvidence(BaseModel):
@@ -48,45 +55,72 @@ class NegativeEvidence(BaseModel):
     lessons: list[str] = []
 
 
-class AlternativeConsidered(BaseModel):
-    family: str
-    reason: str = ""
-    confidence_score: float = 0
-
-
 class OutcomeRange(BaseModel):
-    metric: str = ""
+    metric_key: str = ""
+    metric_label: str = ""
+    metric_category: str = ""
     unit: str = ""
-    median: Optional[float] = None
+    direction: str = ""
     low: Optional[float] = None
+    median: Optional[float] = None
     high: Optional[float] = None
-    count: int = 0
-    source: str = "evidence"
+    sample_size: int = 0
+    gold_count: int = 0
+    silver_count: int = 0
+    bronze_count: int = 0
+    directly_comparable: bool = True
+    compatibility_notes: str = ""
+    calculation_method: str = "median_minmax"
+    source_record_ids: list[str] = []
 
 
 class WhyRankedFirst(BaseModel):
     summary: str = ""
-    key_strengths: list[str] = []
-    scoring_dimensions: list[dict] = []
-    vs_alternatives: list[dict] = []
+    supporting_reasons: list[str] = []
+    tradeoffs: list[str] = []
+    alternative_differences: list[dict] = []
+
+
+class AlternativeComparison(BaseModel):
+    category: str = ""
+    specific_intervention: str = ""
+    rank: int = 0
+    evidence_strength: str = ""
+    outcome_support: str = ""
+    data_requirements: str = ""
+    implementation_complexity: str = ""
+    expected_timeline: str = ""
+    team_requirements: str = ""
+    time_to_value: str = ""
+    primary_advantages: list[str] = []
+    primary_limitations: list[str] = []
+    reason_for_rank: str = ""
 
 
 class Assumption(BaseModel):
-    assumption: str = ""
-    impact_on_outcome: str = ""
-    confidence: str = "medium"
+    title: str = ""
+    explanation: str = ""
+    effect_on_recommendation: str = ""
+    effect_on_confidence: str = ""
+    resolution_action: str = ""
 
 
 class InformationGap(BaseModel):
-    gap: str = ""
-    why_needed: str = ""
-    priority: str = "medium"
+    title: str = ""
+    explanation: str = ""
+    effect_on_recommendation: str = ""
+    effect_on_confidence: str = ""
+    resolution_action: str = ""
 
 
 class NextValidationStep(BaseModel):
     action: str = ""
-    why: str = ""
-    estimated_effort: str = ""
+    purpose: str = ""
+    owner: str = ""
+    duration: str = ""
+    required_inputs: list[str] = []
+    success_criteria: str = ""
+    decision_enabled: str = ""
 
 
 class EvidenceSummary(BaseModel):
@@ -112,7 +146,16 @@ class ImpactEstimate(BaseModel):
     high: Optional[float] = None
     currency: str = "USD"
     basis: str = ""
-    confidence: str = "low"
+    missing_inputs: list[str] = []
+    what_can_be_reported: str = ""
+    prompt_for_user: str = ""
+
+
+class ImpactSummary(BaseModel):
+    annual_savings: ImpactEstimate = Field(default_factory=ImpactEstimate)
+    annual_hours_returned: ImpactEstimate = Field(default_factory=ImpactEstimate)
+    implementation_timeline: TimelineEstimate = Field(default_factory=TimelineEstimate)
+    project_team: ProjectTeam = Field(default_factory=ProjectTeam)
 
 
 class TimelineEstimate(BaseModel):
@@ -130,11 +173,13 @@ class ProjectTeam(BaseModel):
     basis: str = ""
 
 
-class ImpactSummary(BaseModel):
-    annual_savings: ImpactEstimate = Field(default_factory=ImpactEstimate)
-    annual_hours_returned: ImpactEstimate = Field(default_factory=ImpactEstimate)
-    implementation_timeline: TimelineEstimate = Field(default_factory=TimelineEstimate)
-    project_team: ProjectTeam = Field(default_factory=ProjectTeam)
+class SpecificIntervention(BaseModel):
+    title: str = ""
+    description: str = ""
+    required_changes: list[str] = []
+    scope_boundaries: list[str] = []
+    prerequisites: list[str] = []
+    excluded_scope: list[str] = []
 
 
 class Recommendation(BaseModel):
@@ -144,6 +189,7 @@ class Recommendation(BaseModel):
     category: str = ""
     title: str
     specific_action: str = ""
+    specific_intervention: SpecificIntervention = Field(default_factory=SpecificIntervention)
     subtitle: str = ""
     description: str = ""
     selection_status: str = "recommended"
@@ -155,12 +201,19 @@ class Recommendation(BaseModel):
     evidence_summary: EvidenceSummary = Field(default_factory=EvidenceSummary)
     outcome_ranges: list[OutcomeRange] = []
     why_ranked_first: Optional[WhyRankedFirst] = None
+    alternative_comparison: Optional[AlternativeComparison] = None
     comparable_implementations: list[ComparableEvidence] = []
     risks: list[dict] = []
     alternatives_considered: list[AlternativeConsidered] = []
     assumptions_detail: list[Assumption] = []
     information_gaps: list[InformationGap] = []
     next_validation_step: Optional[NextValidationStep] = None
+
+
+class AlternativeConsidered(BaseModel):
+    family: str
+    reason: str = ""
+    confidence_score: float = 0
 
 
 class RecommendationResponse(BaseModel):
@@ -174,6 +227,7 @@ class RecommendationResponse(BaseModel):
     recommendations: list[Recommendation] = []
     risks: list[dict] = []
     methodology: dict = {}
+    methodology_summary: str = ""
     assumptions: list[Assumption] = []
     information_gaps: list[InformationGap] = []
     next_validation_steps: list[NextValidationStep] = []
