@@ -28,7 +28,9 @@ class ComparableEvidence(BaseModel):
     geography: str = ""
     organization_size: Optional[int] = 0
     workflow: str = ""
+    workflow_context: str = ""
     intervention: str
+    intervention_description: str = ""
     outcome_summary: str = ""
     normalized_metrics: list[dict] = []
     evidence_tier: str = "bronze"
@@ -50,6 +52,41 @@ class AlternativeConsidered(BaseModel):
     family: str
     reason: str = ""
     confidence_score: float = 0
+
+
+class OutcomeRange(BaseModel):
+    metric: str = ""
+    unit: str = ""
+    median: Optional[float] = None
+    low: Optional[float] = None
+    high: Optional[float] = None
+    count: int = 0
+    source: str = "evidence"
+
+
+class WhyRankedFirst(BaseModel):
+    summary: str = ""
+    key_strengths: list[str] = []
+    scoring_dimensions: list[dict] = []
+    vs_alternatives: list[dict] = []
+
+
+class Assumption(BaseModel):
+    assumption: str = ""
+    impact_on_outcome: str = ""
+    confidence: str = "medium"
+
+
+class InformationGap(BaseModel):
+    gap: str = ""
+    why_needed: str = ""
+    priority: str = "medium"
+
+
+class NextValidationStep(BaseModel):
+    action: str = ""
+    why: str = ""
+    estimated_effort: str = ""
 
 
 class EvidenceSummary(BaseModel):
@@ -106,6 +143,7 @@ class Recommendation(BaseModel):
     intervention_id: str = ""
     category: str = ""
     title: str
+    specific_action: str = ""
     subtitle: str = ""
     description: str = ""
     selection_status: str = "recommended"
@@ -115,9 +153,14 @@ class Recommendation(BaseModel):
     confidence: Confidence
     impact: ImpactSummary = Field(default_factory=ImpactSummary)
     evidence_summary: EvidenceSummary = Field(default_factory=EvidenceSummary)
+    outcome_ranges: list[OutcomeRange] = []
+    why_ranked_first: Optional[WhyRankedFirst] = None
     comparable_implementations: list[ComparableEvidence] = []
     risks: list[dict] = []
     alternatives_considered: list[AlternativeConsidered] = []
+    assumptions_detail: list[Assumption] = []
+    information_gaps: list[InformationGap] = []
+    next_validation_step: Optional[NextValidationStep] = None
 
 
 class RecommendationResponse(BaseModel):
@@ -131,3 +174,6 @@ class RecommendationResponse(BaseModel):
     recommendations: list[Recommendation] = []
     risks: list[dict] = []
     methodology: dict = {}
+    assumptions: list[Assumption] = []
+    information_gaps: list[InformationGap] = []
+    next_validation_steps: list[NextValidationStep] = []

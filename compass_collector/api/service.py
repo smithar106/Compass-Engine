@@ -18,6 +18,11 @@ from compass_collector.api.schemas import (
     TimelineEstimate,
     ProjectTeam,
     ImpactSummary,
+    OutcomeRange,
+    WhyRankedFirst,
+    Assumption,
+    InformationGap,
+    NextValidationStep,
 )
 
 # ---------------------------------------------------------------------------
@@ -187,14 +192,19 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
         relevance = _build_relevance(ex, family_id)
         already_used.add(rec_id)
 
+        workflow_ctx = ex.get("workflow", "")
+        intervention_desc = ex.get("summary", "") or ex.get("description", "") or ""
+
         result.append(ComparableEvidence(
             record_id=rec_id,
             organization=ex.get("organization", "Unknown"),
             industry="",
             geography="",
             organization_size=ex.get("employee_count", 0),
-            workflow="",
+            workflow=workflow_ctx,
+            workflow_context=_describe_workflow_context(workflow_ctx),
             intervention=ex.get("intervention", ""),
+            intervention_description=intervention_desc,
             outcome_summary=outcome_display,
             normalized_metrics=normalized,
             evidence_tier=tier,
@@ -205,6 +215,31 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
             relevance_explanation=relevance,
         ))
     return result
+
+
+def _describe_workflow_context(workflow: str) -> str:
+    if not workflow:
+        return ""
+    wf = workflow.lower().replace("_", " ")
+    descriptions = {
+        "lead qualification": "Inbound lead triage and qualification routing",
+        "marketing automation": "Multi-channel campaign and lead nurturing workflows",
+        "customer health scoring": "Customer health monitoring and intervention triggers",
+        "ticketing": "Support ticket intake, triage, and resolution tracking",
+        "invoice processing": "Invoice receipt, validation, and payment processing",
+        "product analytics": "Product usage analytics and insight generation",
+        "ci cd": "Continuous integration and deployment pipeline management",
+        "onboarding": "Employee or customer onboarding workflow coordination",
+        "it automation": "IT service request management and resolution",
+        "supply chain": "Supply chain coordination and inventory management",
+        "manufacturing": "Manufacturing workflow optimization and quality control",
+        "contract review": "Contract review, approval, and compliance tracking",
+        "process automation": "Cross-functional business process automation",
+    }
+    for key, desc in descriptions.items():
+        if key in wf or wf in key:
+            return desc
+    return f"{workflow.replace('_', ' ').title()} workflow"
 
 
 def _build_relevance(ex: dict, family_id: str) -> str:
@@ -338,6 +373,238 @@ def _estimate_team(category_id: str, comparables: list) -> ProjectTeam:
         roles=["Project Lead", "Technical Lead", "Workflow Owner"],
         basis="Default estimate."
     )
+
+
+# ---------------------------------------------------------------------------
+# Evidence-derived outcome ranges
+# ---------------------------------------------------------------------------
+
+def _calculate_outcome_ranges(comparables: list[ComparableEvidence]) -> list[OutcomeRange]:
+    from collections import defaultdict
+    metrics_by_name = defaultdict(list)
+    for c in comparables:
+        for m in c.normalized_metrics:
+            metric_name = m.get("metric", "")
+            val_str = m.get("value", "")
+            if not metric_name or not val_str:
+                continue
+            try:
+                if val_str.endswith("%"):
+                    val = float(val_str.rstrip("%"))
+                    metrics_by_name[metric_name].append(("%", val))
+                elif val_str.startswith("$"):
+                    val = float(val_str.replace("$", "").replace(",", ""))
+                    metrics_by_name[metric_name].append(("currency", val))
+                else:
+                    val = float(val_str)
+                    metrics_by_name[metric_name].append(("number", val))
+            except ValueError:
+                pass
+
+    ranges = []
+    for metric_name, values in sorted(metrics_by_name.items()):
+        if len(values) < 1:
+            continue
+        unit, nums = values[0][0], [v[1] for v in values]
+        nums_sorted = sorted(nums)
+        mid = len(nums_sorted) // 2
+        if len(nums_sorted) % 2:
+            median = nums_sorted[mid]
+        else:
+            median = (nums_sorted[mid - 1] + nums_sorted[mid]) / 2
+        ranges.append(OutcomeRange(
+            metric=metric_name,
+            unit=unit,
+            median=round(median, 1),
+            low=round(nums_sorted[0], 1),
+            high=round(nums_sorted[-1], 1),
+            count=len(nums_sorted),
+            source="evidence",
+        ))
+    return ranges[:5]
+
+
+def _generate_specific_action(inv: dict, req: InvestigationRequest) -> str:
+    family_id = inv.get("family_id", "")
+    problem = (req.problem_statement or "").strip()[:80]
+    top_examples = inv.get("top_examples", [])
+
+    if top_examples:
+        ex = top_examples[0]
+        intervention = ex.get("intervention", "")
+        if intervention and len(intervention) > 10:
+            return intervention[:120]
+
+    if family_id == "Workflow_Automation":
+        if problem:
+            return f"Automate and standardize {problem.lower()} to reduce manual processing and exception handling"
+        return "Automate repetitive manual workflows through rules-based automation and exception path handling"
+    elif family_id == "AI":
+        if problem:
+            return f"Deploy AI-powered {problem.lower()} to automate decisions and reduce handling time"
+        return "Deploy AI-powered automation for classification, routing, and decision-making tasks"
+    elif family_id == "Software":
+        return "Implement and integrate purpose-built platforms to replace manual or disconnected tools"
+    elif family_id == "Process_Redesign":
+        target = problem if problem else "core operational workflows"
+        return f"Redesign and streamline {target.lower()} to eliminate waste and reduce handoffs"
+    elif family_id == "Staffing":
+        return "Restructure team allocation and add specialized roles to address capacity gaps"
+    elif family_id == "Hybrid":
+        return "Combine automation, AI, and process redesign for a comprehensive transformation"
+    return inv.get("family_name", "Implement recommended solution")
+
+
+def _build_ranking_explanation(ranked: list[Recommendation]) -> Optional[WhyRankedFirst]:
+    if not ranked:
+        return None
+    top = ranked[0]
+
+    strengths = []
+    if top.confidence.score >= 0.7:
+        strengths.append(f"Strongest evidence base: {top.evidence_summary.total_comparables} comparable implementations with {top.evidence_summary.gold_count} gold-tier sources")
+    elif top.confidence.score >= 0.4:
+        strengths.append(f"Moderate evidence from {top.evidence_summary.total_comparables} comparable implementations")
+
+    if top.evidence_summary.total_comparables >= 5:
+        strengths.append(f"Consistent outcomes observed across {top.evidence_summary.total_comparables} different comparable implementations")
+    if top.evidence_summary.gold_count >= 1:
+        strengths.append(f"{top.evidence_summary.gold_count} independently verified implementations with quantified results")
+    if top.evidence_summary.silver_count >= 2:
+        strengths.append("Multiple implementations with strong outcome documentation")
+
+    dims = [
+        {"dimension": "Evidence strength", "score": min(1.0, top.evidence_summary.total_comparables / 15), "detail": f"{top.evidence_summary.total_comparables} comparable implementations"},
+        {"dimension": "Outcome consistency", "score": min(1.0, top.evidence_summary.average_evidence_score / 80), "detail": f"Average evidence score: {top.evidence_summary.average_evidence_score:.0f}/100"},
+        {"dimension": "Confidence level", "score": top.confidence.score, "detail": f"{top.confidence.label.title()} confidence"},
+    ]
+
+    alts = []
+    for i, r in enumerate(ranked[1:4], 2):
+        gap = (top.confidence.score - r.confidence.score) if r.confidence.score else 0
+        why_lower = ""
+        if r.evidence_summary.total_comparables < top.evidence_summary.total_comparables:
+            why_lower = f"Fewer comparable implementations ({r.evidence_summary.total_comparables} vs {top.evidence_summary.total_comparables})"
+        elif r.confidence.score < top.confidence.score:
+            why_lower = f"Lower confidence score ({r.confidence.score:.0%} vs {top.confidence.score:.0%})"
+        else:
+            why_lower = "Less evidence depth overall"
+
+        when_to_consider = ""
+        if r.rank == 2:
+            when_to_consider = f"If {r.title.lower()} aligns better with existing capabilities or resources"
+        elif r.rank == 3:
+            when_to_consider = f"Worth exploring if top options prove impractical after initial validation"
+
+        alts.append({
+            "alternative": r.title,
+            "rank": r.rank,
+            "confidence_gap": round(gap * 100),
+            "why_lower": why_lower,
+            "when_to_consider": when_to_consider,
+        })
+
+    summary = (
+        f"This recommendation ranks first based on {top.evidence_summary.total_comparables} comparable implementations "
+        f"with {top.evidence_summary.gold_count} gold-tier evidence sources and "
+        f"{top.confidence.label.title()} confidence ({top.confidence.score:.0%}). "
+        f"Alternatives ranked lower due to fewer evidence sources or lower outcome consistency."
+    )
+
+    return WhyRankedFirst(
+        summary=summary,
+        key_strengths=strengths[:4],
+        scoring_dimensions=dims,
+        vs_alternatives=alts,
+    )
+
+
+def _build_assumptions_detail(inv: dict, comparables: list[ComparableEvidence], req: InvestigationRequest) -> list[Assumption]:
+    assumptions = []
+    total = len(comparables)
+
+    if total < 5:
+        assumptions.append(Assumption(
+            assumption=f"Only {total} comparable implementations available — outcomes may vary significantly from observed ranges.",
+            impact_on_outcome="Actual results could differ from reported ranges, especially in different organizational contexts.",
+            confidence="low",
+        ))
+
+    if not req.people_involved and not req.workflow_frequency:
+        assumptions.append(Assumption(
+            assumption="Current workflow volume and headcount were not provided; evidence-derived ranges use observed outcomes from comparable organizations.",
+            impact_on_outcome="Organization-specific impact may differ from reported ranges based on actual scale and complexity.",
+            confidence="medium",
+        ))
+
+    if not req.budget_range:
+        assumptions.append(Assumption(
+            assumption="Implementation budget was not specified; timeline and scope estimates assume typical resource availability.",
+            impact_on_outcome="Cost and duration could vary significantly based on actual resource constraints.",
+            confidence="medium",
+        ))
+
+    if not req.current_tools:
+        assumptions.append(Assumption(
+            assumption="Current tooling environment was not provided; integration complexity is based on comparable implementations.",
+            impact_on_outcome="Integration effort and timeline may be underestimated if legacy systems are involved.",
+            confidence="medium",
+        ))
+
+    return assumptions
+
+
+def _build_information_gaps(inv: dict, comparables: list, req: InvestigationRequest) -> list[InformationGap]:
+    gaps = []
+
+    if not req.people_involved or not req.workflow_frequency:
+        gaps.append(InformationGap(
+            gap="Current workflow volume, handling time, and team size",
+            why_needed="Required to calculate organization-specific time/cost impact from the observed improvement percentages.",
+            priority="high",
+        ))
+
+    if total := len(comparables) < 3:
+        gaps.append(InformationGap(
+            gap="More comparable implementations in your industry and company size",
+            why_needed="Would improve confidence that observed outcomes translate to your specific context.",
+            priority="medium",
+        ))
+
+    if not req.budget_range:
+        gaps.append(InformationGap(
+            gap="Available implementation budget",
+            why_needed="Budget range affects which intervention approaches are feasible and the pace of implementation.",
+            priority="medium",
+        ))
+
+    if not req.implementation_timeline:
+        gaps.append(InformationGap(
+            gap="Preferred implementation timeline and constraints",
+            why_needed="Timeline preferences affect the phasing and scope of the recommended approach.",
+            priority="low",
+        ))
+
+    return gaps
+
+
+def _build_next_validation_step(rank: int, category_id: str, comparables_total: int) -> NextValidationStep:
+    if rank == 1:
+        action = "Run a bounded pilot of the recommended approach in a single team or workflow"
+        why = (
+            "Validate that the outcomes observed in comparable implementations translate to your specific "
+            "organizational context before committing to full-scale investment."
+        )
+        effort = "4–8 weeks for a well-scoped pilot with defined success metrics"
+    else:
+        action = "Evaluate the feasibility of this alternative alongside the primary recommendation"
+        why = (
+            "Second- and third-ranked options may offer different risk profiles, cost structures, or "
+            "organizational fit worth comparing before making a final decision."
+        )
+        effort = "1–2 weeks for feasibility assessment"
+
+    return NextValidationStep(action=action, why=why, estimated_effort=effort)
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +749,9 @@ def _build_recommendations(
             project_team=team,
         )
 
+        outcome_ranges = _calculate_outcome_ranges(comparables)
+        specific_action = _generate_specific_action(inv, req)
+
         assessment_risks = []
         if req and req.business_risk:
             assessment_risks = [req.business_risk]
@@ -499,12 +769,17 @@ def _build_recommendations(
 
         rationale = inv.get("description", "")[:200]
 
+        assumptions_detail = _build_assumptions_detail(inv, comparables, req)
+        information_gaps = _build_information_gaps(inv, raw_examples, req)
+        next_step = _build_next_validation_step(rank, family_id, total)
+
         rec = Recommendation(
             rank=rank,
             is_compass_choice=rank == 1,
             intervention_id=family_id,
             category=family_id,
             title=inv.get("family_name", "Recommendation"),
+            specific_action=specific_action,
             subtitle=CATEGORY_SUBTITLES.get(family_id, ""),
             description=rationale,
             selection_status="recommended",
@@ -526,9 +801,13 @@ def _build_recommendations(
                 status_breakdown={"total": total, "gold": gold, "silver": silver, "bronze": bronze},
                 average_evidence_score=round(inv.get("evidence_score", 0), 1),
             ),
+            outcome_ranges=outcome_ranges,
             comparable_implementations=comparables,
             risks=_build_risks(family_id, comparables, total, assessment_risks),
             alternatives_considered=_build_alternatives(interventions, i),
+            assumptions_detail=assumptions_detail,
+            information_gaps=information_gaps,
+            next_validation_step=next_step,
         )
         ranked.append(rec)
 
@@ -538,12 +817,15 @@ def _build_recommendations(
     if len(ranked) >= 2:
         gap_1_2 = ranked[0].confidence.score - ranked[1].confidence.score
         if gap_1_2 > 0.30:
-            return [ranked[0]]
+            ranked = [ranked[0]]
 
     if len(ranked) >= 3:
         gap_2_3 = ranked[1].confidence.score - ranked[2].confidence.score
         if gap_2_3 > 0.30:
-            return ranked[:2]
+            ranked = ranked[:2]
+
+    if ranked:
+        ranked[0].why_ranked_first = _build_ranking_explanation(ranked)
 
     return ranked
 
@@ -637,6 +919,8 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
     if recommendations:
         impact_summary = recommendations[0].impact
 
+    top_rec = recommendations[0] if recommendations else None
+
     return RecommendationResponse(
         recommendation_id=run_id,
         status="complete",
@@ -652,6 +936,9 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
             "overall_confidence": overall_conf.get("score", 0),
             "summary": overall_conf.get("summary", ""),
         },
+        assumptions=top_rec.assumptions_detail if top_rec else [],
+        information_gaps=top_rec.information_gaps if top_rec else [],
+        next_validation_steps=[top_rec.next_validation_step] if top_rec and top_rec.next_validation_step else [],
     )
 
 
