@@ -377,6 +377,42 @@ def _estimate_impact(
     return savings, hours
 
 
+def _estimate_timeline(category_id: str, comparables: list) -> TimelineEstimate:
+    tl = CATEGORY_TIMELINE.get(category_id)
+    if tl:
+        return TimelineEstimate(
+            min_weeks=tl["min"],
+            expected_weeks=tl["expected"],
+            max_weeks=tl["max"],
+            basis=f"Typical timeline for {CATEGORY_SUBTITLES.get(category_id, category_id)} based on intervention complexity and scope."
+        )
+    return TimelineEstimate(
+        min_weeks=4,
+        expected_weeks=8,
+        max_weeks=16,
+        basis="Default estimate \u2014 intervention category not recognized."
+    )
+
+
+def _estimate_team(category_id: str, comparables: list) -> ProjectTeam:
+    team = CATEGORY_TEAM.get(category_id)
+    if team:
+        return ProjectTeam(
+            min_people=team["min"],
+            expected_people=team["expected"],
+            max_people=team["max"],
+            roles=team["roles"],
+            basis=f"Typical team composition for {CATEGORY_SUBTITLES.get(category_id, category_id)}."
+        )
+    return ProjectTeam(
+        min_people=2,
+        expected_people=3,
+        max_people=4,
+        roles=["Project Lead", "Technical Lead", "Workflow Owner"],
+        basis="Default estimate."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Phase 3 — Evidence-derived outcome ranges with compatibility rules
 # ---------------------------------------------------------------------------
@@ -1169,6 +1205,45 @@ def _build_risks(
     return risks[:4]
 
 
+def _build_assumptions(inv: dict, total_comparables: int) -> list[str]:
+    assumptions = []
+    if total_comparables < 5:
+        assumptions.append(f"Limited comparable implementations ({total_comparables}) \u2014 outcomes may vary significantly from estimates.")
+    if inv.get("confidence", 0) < 50:
+        assumptions.append("Moderate confidence \u2014 additional validation recommended before committing to implementation.")
+    return assumptions
+
+
+def _build_alternatives(interventions: list, skip_idx: int) -> list[AlternativeConsidered]:
+    alts = []
+    for j, inv in enumerate(interventions):
+        if j == skip_idx:
+            continue
+        if len(alts) >= 3:
+            break
+        alts.append(AlternativeConsidered(
+            family=inv.get("family_name", ""),
+            reason=f"{_pluralize(inv.get('comparable_count', 0), 'comparable implementation')}, confidence {inv.get('confidence', 0)}%",
+            confidence_score=round(inv.get("confidence", 0) / 100, 2),
+        ))
+    return alts
+
+
+def _placeholder_rec(rank: int) -> Recommendation:
+    return Recommendation(
+        rank=rank,
+        is_compass_choice=rank == 1,
+        intervention_id="unknown",
+        title="Additional Recommendation",
+        description="Insufficient comparable evidence to generate a specific recommendation at this time.",
+        selection_status="insufficient_evidence",
+        rationale="No comparable implementations were found that match the assessed workflow and constraints.",
+        confidence=Confidence(score=0, label="insufficient", explanation="Insufficient evidence"),
+        evidence_summary=EvidenceSummary(),
+        impact=ImpactSummary(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main recommendation builder
 # ---------------------------------------------------------------------------
@@ -1294,45 +1369,6 @@ def _build_recommendations(
         ranked[0].why_ranked_first = _build_ranking_explanation(ranked, interventions)
 
     return ranked
-
-
-def _build_assumptions(inv: dict, total_comparables: int) -> list[str]:
-    assumptions = []
-    if total_comparables < 5:
-        assumptions.append(f"Limited comparable implementations ({total_comparables}) \u2014 outcomes may vary significantly from estimates.")
-    if inv.get("confidence", 0) < 50:
-        assumptions.append("Moderate confidence \u2014 additional validation recommended before committing to implementation.")
-    return assumptions
-
-
-def _build_alternatives(interventions: list, skip_idx: int) -> list[AlternativeConsidered]:
-    alts = []
-    for j, inv in enumerate(interventions):
-        if j == skip_idx:
-            continue
-        if len(alts) >= 3:
-            break
-        alts.append(AlternativeConsidered(
-            family=inv.get("family_name", ""),
-            reason=f"{_pluralize(inv.get('comparable_count', 0), 'comparable implementation')}, confidence {inv.get('confidence', 0)}%",
-            confidence_score=round(inv.get("confidence", 0) / 100, 2),
-        ))
-    return alts
-
-
-def _placeholder_rec(rank: int) -> Recommendation:
-    return Recommendation(
-        rank=rank,
-        is_compass_choice=rank == 1,
-        intervention_id="unknown",
-        title="Additional Recommendation",
-        description="Insufficient comparable evidence to generate a specific recommendation at this time.",
-        selection_status="insufficient_evidence",
-        rationale="No comparable implementations were found that match the assessed workflow and constraints.",
-        confidence=Confidence(score=0, label="insufficient", explanation="Insufficient evidence"),
-        evidence_summary=EvidenceSummary(),
-        impact=ImpactSummary(),
-    )
 
 
 # ---------------------------------------------------------------------------
