@@ -18,7 +18,7 @@ for d in [RAW_DIR, PROCESSED_DIR, EXPORTS_DIR, REGISTRY_DIR, CACHE_DIR, SCREENSH
           RAW_DIR / "html", RAW_DIR / "pdf", RAW_DIR / "images"]:
     d.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = os.getenv("COLLECTOR_DATABASE_URL", f"sqlite:///{DATA_DIR / 'collector.db'}")
+DATABASE_URL = os.getenv("COLLECTOR_DATABASE_URL", f"sqlite:///{DATA_DIR / 'collector_v3.db'}")
 
 DEFAULT_USER_AGENT = "CompassCollector/1.0 (+https://compass.com; research@compass.com)"
 DEFAULT_RATE_LIMIT = 1.0

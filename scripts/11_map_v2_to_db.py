@@ -63,7 +63,7 @@ def clean_num(v):
     except (ValueError, TypeError):
         return None
 
-now = datetime.now(timezone.UTC)
+now = datetime.now(timezone.utc)
 doc_cache = {}
 created = 0
 

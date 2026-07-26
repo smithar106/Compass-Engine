@@ -29,11 +29,12 @@ env/
 tmp/
 temp/
 
-# Local databases
+# Local databases (except tracked via Git LFS)
 *.db
 *.sqlite
 *.sqlite3
 data/
+!data/collector_v3.db
 
 # Extraction outputs / generated datasets
 output/
