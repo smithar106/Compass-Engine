@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from compass_collector.analysis.recommendation import recommend
 from compass_collector.analysis.retrieval import get_negative_evidence
 from compass_collector.api.evidence_tier import classify_tier_for_comparable
