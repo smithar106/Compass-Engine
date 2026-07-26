@@ -136,7 +136,7 @@ def _outcome_ranges_section(data: dict) -> str:
             val = f"{r['median']}{suffix}"
         elif r.get("low") is not None and r.get("high") is not None:
             suffix = "%" if r.get("unit") == "%" else ""
-            val = f"{r['low']}{suffix} \u2013 {r['high']}{suffix}"
+            val = f"{r['low']}{suffix} – {r['high']}{suffix}"
         dir_arrow = _direction_emoji(r.get("direction", ""))
         label = r.get("metric_label", "")
         count = r.get("sample_size", 0)
@@ -363,7 +363,7 @@ def generate_report_html(data: dict) -> str:
     workflow = data.get("assessment_summary", {}).get("workflow", "").replace("_", " ")
 
     return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Compass \u2014 Recommendation Report</title>{_STYLES}</head><body>
+<html><head><meta charset="utf-8"><title>Compass — Recommendation Report</title>{_STYLES}</head><body>
 
 <div class="logo">Compass</div>
 <div class="meta">

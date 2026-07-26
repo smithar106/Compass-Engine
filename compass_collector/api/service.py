@@ -312,7 +312,7 @@ def _build_relevance(ex: dict, family_id: str) -> str:
         parts.append("High similarity to the assessed workflow")
     elif similarity >= 40:
         parts.append("Moderate similarity to the assessed workflow")
-    return " \u2014 ".join(parts) if parts else "Comparable implementation"
+    return " — ".join(parts) if parts else "Comparable implementation"
 
 
 def _pluralize(n: int, word: str) -> str:
@@ -390,7 +390,7 @@ def _estimate_timeline(category_id: str, comparables: list) -> TimelineEstimate:
         min_weeks=4,
         expected_weeks=8,
         max_weeks=16,
-        basis="Default estimate \u2014 intervention category not recognized."
+        basis="Default estimate — intervention category not recognized."
     )
 
 
@@ -898,7 +898,7 @@ def _complexity_label(category: str) -> str:
 
 def _timeline_label(tl: TimelineEstimate) -> str:
     if tl.min_weeks and tl.max_weeks:
-        return f"{tl.min_weeks:.0f}\u2013{tl.max_weeks:.0f} weeks"
+        return f"{tl.min_weeks:.0f}–{tl.max_weeks:.0f} weeks"
     if tl.expected_weeks:
         return f"{tl.expected_weeks:.0f} weeks"
     return "To be determined"
@@ -906,18 +906,18 @@ def _timeline_label(tl: TimelineEstimate) -> str:
 
 def _team_label(team: ProjectTeam) -> str:
     if team.min_people and team.max_people:
-        return f"{team.min_people}\u2013{team.max_people} people"
+        return f"{team.min_people}–{team.max_people} people"
     return "To be determined"
 
 
 def _ttv_label(category: str) -> str:
     labels = {
-        "Workflow_Automation": "Quick (4\u20138 weeks)",
-        "AI": "Medium (12\u201320 weeks)",
-        "Software": "Medium (12\u201324 weeks)",
-        "Process_Redesign": "Medium (8\u201316 weeks)",
-        "Staffing": "Quick (4\u201312 weeks)",
-        "Hybrid": "Longer (16\u201330 weeks)",
+        "Workflow_Automation": "Quick (4–8 weeks)",
+        "AI": "Medium (12–20 weeks)",
+        "Software": "Medium (12–24 weeks)",
+        "Process_Redesign": "Medium (8–16 weeks)",
+        "Staffing": "Quick (4–12 weeks)",
+        "Hybrid": "Longer (16–30 weeks)",
     }
     return labels.get(category, "Medium")
 
@@ -1079,7 +1079,7 @@ def _build_next_validation_step(rank: int, category_id: str, comparables_total: 
         else:
             action = "Run a bounded pilot of the recommended approach in a single team or workflow"
             purpose = "Validate that the outcomes observed in comparable implementations translate to your specific organizational context"
-            duration = "4\u20138 weeks for a well-scoped pilot with defined success metrics"
+            duration = "4–8 weeks for a well-scoped pilot with defined success metrics"
             criteria = "Measurable improvement in at least one of the outcome dimensions identified in this recommendation"
             decision = "Confirms whether to proceed with full-scale implementation"
             inputs = ["Selected pilot scope and team", "Baseline metrics before intervention", "Success criteria defined"]
@@ -1087,7 +1087,7 @@ def _build_next_validation_step(rank: int, category_id: str, comparables_total: 
     else:
         action = "Evaluate this alternative alongside the primary recommendation"
         purpose = "Second- and third-ranked options may offer different risk profiles, cost structures, or organizational fit"
-        duration = "1\u20132 weeks for feasibility assessment"
+        duration = "1–2 weeks for feasibility assessment"
         criteria = "Clear understanding of relative benefits, costs, and risks vs the primary recommendation"
         decision = "Informs whether to pursue this alternative instead of or in parallel with the primary recommendation"
         inputs = ["Primary recommendation details", "Alternative-specific evidence review", "Stakeholder input on feasibility"]
@@ -1208,9 +1208,9 @@ def _build_risks(
 def _build_assumptions(inv: dict, total_comparables: int) -> list[str]:
     assumptions = []
     if total_comparables < 5:
-        assumptions.append(f"Limited comparable implementations ({total_comparables}) \u2014 outcomes may vary significantly from estimates.")
+        assumptions.append(f"Limited comparable implementations ({total_comparables}) — outcomes may vary significantly from estimates.")
     if inv.get("confidence", 0) < 50:
-        assumptions.append("Moderate confidence \u2014 additional validation recommended before committing to implementation.")
+        assumptions.append("Moderate confidence — additional validation recommended before committing to implementation.")
     return assumptions
 
 
