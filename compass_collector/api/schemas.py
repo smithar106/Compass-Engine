@@ -26,7 +26,7 @@ class ComparableEvidence(BaseModel):
     organization: str
     industry: str = ""
     geography: str = ""
-    organization_size: int = 0
+    organization_size: Optional[int] = 0
     workflow: str = ""
     intervention: str
     outcome_summary: str = ""
