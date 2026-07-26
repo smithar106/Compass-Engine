@@ -24,10 +24,26 @@ def startup_log():
     logger.info("=" * 60)
     logger.info("COMPASS ENGINE STARTUP")
     logger.info(f"Database URL: {DATABASE_URL}")
-    logger.info(f"Database path: {db_path}")
+    logger.info(f"Database file: {db_path}")
     logger.info(f"Database exists: {db_path.exists()}")
     if db_path.exists():
         logger.info(f"Database size: {db_path.stat().st_size / 1024 / 1024:.1f} MB")
+    else:
+        # Try to download from GitHub LFS if volume masks it
+        import urllib.request
+        urls = [
+            "https://media.githubusercontent.com/media/smithar106/Compass-Engine/main/data/collector_v3.db",
+            "https://raw.githubusercontent.com/smithar106/Compass-Engine/main/data/collector_v3.db",
+        ]
+        for url in urls:
+            try:
+                logger.info(f"Attempting download from: {url}")
+                urllib.request.urlretrieve(url, str(db_path))
+                if db_path.exists():
+                    logger.info(f"Downloaded collector_v3.db ({db_path.stat().st_size / 1024 / 1024:.1f} MB)")
+                    break
+            except Exception as dl_e:
+                logger.warning(f"Download failed: {dl_e}")
     try:
         session = get_session()
         total = session.query(InterventionRecord).count()
