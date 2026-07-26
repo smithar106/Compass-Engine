@@ -151,13 +151,6 @@ class ImpactEstimate(BaseModel):
     prompt_for_user: str = ""
 
 
-class ImpactSummary(BaseModel):
-    annual_savings: ImpactEstimate = Field(default_factory=ImpactEstimate)
-    annual_hours_returned: ImpactEstimate = Field(default_factory=ImpactEstimate)
-    implementation_timeline: TimelineEstimate = Field(default_factory=TimelineEstimate)
-    project_team: ProjectTeam = Field(default_factory=ProjectTeam)
-
-
 class TimelineEstimate(BaseModel):
     min_weeks: Optional[float] = None
     expected_weeks: Optional[float] = None
@@ -171,6 +164,13 @@ class ProjectTeam(BaseModel):
     max_people: int = 0
     roles: list[str] = []
     basis: str = ""
+
+
+class ImpactSummary(BaseModel):
+    annual_savings: ImpactEstimate = Field(default_factory=ImpactEstimate)
+    annual_hours_returned: ImpactEstimate = Field(default_factory=ImpactEstimate)
+    implementation_timeline: TimelineEstimate = Field(default_factory=TimelineEstimate)
+    project_team: ProjectTeam = Field(default_factory=ProjectTeam)
 
 
 class SpecificIntervention(BaseModel):
