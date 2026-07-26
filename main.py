@@ -294,10 +294,6 @@ def main():
         print(f"\nExporting...")
         bridge.export()
         print(f"Done! Stats: {bridge.stats}")
-    elif cmd == "validate":
-        init_db()
-        from compass_collector.scraper.completeness_validator import CompletenessValidator
-        print(CompletenessValidator().report())
     elif cmd == "demo":
         run_demo()
     else:

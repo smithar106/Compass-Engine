@@ -113,7 +113,7 @@ def recommend(
             top_summaries.append({
                 "organization": r["organization"],
                 "summary": r["summary"],
-                "outcomes": r["outcome_summaries"],
+                "outcomes": r.get("outcome_summaries", []),
                 "similarity": r["similarity_score"],
             })
 
@@ -343,7 +343,7 @@ def _build_why_panel(evidence: dict, recommended: list, confidence: dict) -> dic
                 {
                     "organization": r["organization"],
                     "intervention": r["intervention"],
-                    "outcome": r["outcome_summaries"][0] if r["outcome_summaries"] else "",
+                    "outcome": (r.get("outcome_summaries") or [])[0] if (r.get("outcome_summaries") or []) else "",
                     "similarity": r["similarity_score"],
                     "status": r["status"],
                 }

@@ -76,8 +76,10 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
         neg_list = raw_negative
     elif isinstance(raw_negative, int):
         neg_list = why.get("negative_evidence", []) if isinstance(why.get("negative_evidence"), list) else []
+    else:
+        neg_list = []
 
-    recommendations = _build_recommendations(interventions, all_comparables, neg_list, ctx, why, req)
+    recommendations = _build_recommendations(interventions, all_comparables, neg_list, why, req)
 
     run_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -136,9 +138,8 @@ def _build_recommendations(
     interventions: list,
     all_comparables: list,
     negative_evidence: list,
-    ctx: dict,
     why: dict,
-    req: InvestigationRequest = None,
+    req: Optional[InvestigationRequest] = None,
 ) -> list[Recommendation]:
     ranked: list[Recommendation] = []
 

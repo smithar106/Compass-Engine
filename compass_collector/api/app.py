@@ -1,6 +1,4 @@
-import os
 import logging
-from pathlib import Path
 from fastapi import FastAPI
 from compass_collector.api.schemas import InvestigationRequest, RecommendationResponse
 from compass_collector.api.service import run_recommendation
@@ -44,6 +42,7 @@ def startup_log():
                     break
             except Exception as dl_e:
                 logger.warning(f"Download failed: {dl_e}")
+    session = None
     try:
         session = get_session()
         total = session.query(InterventionRecord).count()
@@ -56,9 +55,11 @@ def startup_log():
         logger.info(f"Total records: {total}")
         logger.info(f"  Successful: {successful}")
         logger.info(f"  Failed/Abandoned: {failed}")
-        session.close()
     except Exception as e:
         logger.warning(f"Could not query database: {e}")
+    finally:
+        if session:
+            session.close()
     logger.info("=" * 60)
 
 
