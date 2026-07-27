@@ -376,22 +376,22 @@ def generate_report_html(data: dict) -> str:
 <h1>Executive Summary</h1>
 {_exec_summary_section(data)}
 
-<h2>Evidence-Supported Path</h2>
-{_outcome_ranges_section(data)}
-
-<h2>Why This Path Ranks First</h2>
-{_why_ranked_first_section(data)}
-
 <div class="page-break"></div>
- {_alternative_comparison_section(data)}
+<h2>Primary Recommendation</h2>
+{_outcome_ranges_section(data)}
+{_why_ranked_first_section(data)}
 
 <h2>Comparable Implementations</h2>
 {_comparables_section(data)}
 
 <div class="page-break"></div>
- {_risks_section(data)}
+<h2>Alternatives</h2>
+{_alternative_comparison_section(data)}
 
-<h2>Assumptions and Information Gaps</h2>
+<h2>Risk Assessment</h2>
+{_risks_section(data)}
+
+<h2>Assumptions &amp; Information Gaps</h2>
 {_assumptions_gaps_section(data)}
 
 <h2>Next Step</h2>
