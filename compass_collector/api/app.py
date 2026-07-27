@@ -103,6 +103,14 @@ def create_recommendation(req: InvestigationRequest):
     return run_recommendation(req)
 
 
+@app.get("/api/recommendations/{rec_id}")
+def get_recommendation(rec_id: str):
+    data = load_recommendation(rec_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    return data
+
+
 @app.get("/api/recommendations/{rec_id}/report", response_class=HTMLResponse)
 def get_report_html(rec_id: str):
     data = load_recommendation(rec_id)
