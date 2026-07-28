@@ -1,0 +1,170 @@
+# Compass evidence source registry
+# Each source defines how to discover implementation case studies.
+# Discovery order: direct_url → sitemap → nav_search → crawl
+sources:
+
+  # === ENTERPRISE VENDORS ===
+
+  uipath:
+    root_domain: "https://www.uipath.com"
+    known_landings:
+      - "https://www.uipath.com/resources/automation-case-studies"
+    discovery_terms: ["case studies", "customer stories", "automation", "customers"]
+    url_patterns: ["/resources/automation-case-studies/"]
+    allow_domains: ["uipath.com"]
+    rate_limit: 1.0
+    method: requests
+
+  microsoft:
+    root_domain: "https://www.microsoft.com"
+    known_landings:
+      - "https://www.microsoft.com/en-us/customers"
+    discovery_terms: ["customer stories", "case studies", "transformation", "customers"]
+    url_patterns: ["/customers/", "/customer-stories/"]
+    allow_domains: ["microsoft.com"]
+    rate_limit: 2.0
+    method: opencli
+
+  aws:
+    root_domain: "https://aws.amazon.com"
+    known_landings:
+      - "https://aws.amazon.com/solutions/case-studies/"
+    discovery_terms: ["case studies", "customer stories", "solutions"]
+    url_patterns: ["/solutions/case-studies/", "/customers/"]
+    allow_domains: ["amazon.com", "aws.amazon.com"]
+    rate_limit: 1.0
+    method: requests
+
+  google_cloud:
+    root_domain: "https://cloud.google.com"
+    known_landings:
+      - "https://cloud.google.com/customers"
+    discovery_terms: ["customers", "case studies", "customer stories"]
+    url_patterns: ["/customers/"]
+    allow_domains: ["cloud.google.com", "google.com"]
+    rate_limit: 1.0
+    method: requests
+
+  servicenow:
+    root_domain: "https://www.servicenow.com"
+    known_landings:
+      - "https://www.servicenow.com/customers.html"
+    discovery_terms: ["customers", "case studies", "customer stories"]
+    url_patterns: ["/customers/"]
+    allow_domains: ["servicenow.com"]
+    rate_limit: 2.0
+    method: opencli
+
+  salesforce:
+    root_domain: "https://www.salesforce.com"
+    known_landings:
+      - "https://www.salesforce.com/customer-success-stories/"
+    discovery_terms: ["customer success", "case studies", "stories"]
+    url_patterns: ["/customer-success-stories/", "/case-studies/"]
+    allow_domains: ["salesforce.com"]
+    rate_limit: 1.0
+    method: requests
+
+  ibm:
+    root_domain: "https://www.ibm.com"
+    known_landings:
+      - "https://www.ibm.com/case-studies"
+    discovery_terms: ["case studies", "client stories", "client-success"]
+    url_patterns: ["/case-studies/", "/client-stories/"]
+    allow_domains: ["ibm.com"]
+    rate_limit: 1.0
+    method: requests
+
+  oracle:
+    root_domain: "https://www.oracle.com"
+    known_landings:
+      - "https://www.oracle.com/customers/"
+    discovery_terms: ["customers", "case studies", "customer stories"]
+    url_patterns: ["/customers/"]
+    allow_domains: ["oracle.com"]
+    rate_limit: 1.0
+    method: requests
+
+  celonis:
+    root_domain: "https://www.celonis.com"
+    known_landings:
+      - "https://www.celonis.com/customers/"
+    discovery_terms: ["customers", "case studies"]
+    url_patterns: ["/customers/"]
+    allow_domains: ["celonis.com"]
+    rate_limit: 1.0
+    method: requests
+
+  nvidia:
+    root_domain: "https://www.nvidia.com"
+    known_landings:
+      - "https://www.nvidia.com/en-us/case-studies/"
+    discovery_terms: ["case studies", "customer stories"]
+    url_patterns: ["/case-studies/"]
+    allow_domains: ["nvidia.com"]
+    rate_limit: 1.0
+    method: requests
+
+  # === CONSULTING ===
+
+  accenture:
+    root_domain: "https://www.accenture.com"
+    known_landings:
+      - "https://www.accenture.com/us-en/case-studies"
+    discovery_terms: ["client stories", "case studies", "transformation", "automation", "operations"]
+    url_patterns: ["/case-studies/"]
+    allow_domains: ["accenture.com"]
+    rate_limit: 2.0
+    method: opencli
+
+  deloitte:
+    root_domain: "https://www.deloitte.com"
+    known_landings:
+      - "https://www.deloitte.com/global/en/our-thinking/insights.html"
+    discovery_terms: ["case studies", "client stories", "transformation", "digital", "consulting"]
+    url_patterns: ["/case-studies/", "/insights/"]
+    allow_domains: ["deloitte.com", "deloitte.com/global"]
+    rate_limit: 2.0
+    method: opencli
+
+  ey:
+    root_domain: "https://www.ey.com"
+    known_landings:
+      - "https://www.ey.com/en_us/case-studies"
+    discovery_terms: ["case studies", "client stories"]
+    url_patterns: ["/case-studies/"]
+    allow_domains: ["ey.com"]
+    rate_limit: 1.0
+    method: requests
+
+  cognizant:
+    root_domain: "https://www.cognizant.com"
+    known_landings:
+      - "https://www.cognizant.com/us/en/case-studies"
+    discovery_terms: ["case studies", "client stories", "digital"]
+    url_patterns: ["/case-studies/"]
+    allow_domains: ["cognizant.com"]
+    rate_limit: 1.0
+    method: requests
+
+  # === GOVERNMENT ===
+
+  nao_uk:
+    root_domain: "https://www.nao.org.uk"
+    known_landings:
+      - "https://www.nao.org.uk/reports/"
+    discovery_terms: ["reports", "digital", "transformation", "it", "operations"]
+    url_patterns: ["/reports/"]
+    allow_domains: ["nao.org.uk"]
+    rate_limit: 1.0
+    method: requests
+
+  world_bank:
+    root_domain: "https://www.worldbank.org"
+    known_landings:
+      - "https://www.worldbank.org/en/research"
+    discovery_terms: ["projects", "operations", "digital", "transformation"]
+    url_patterns: ["/en/projects/", "/en/research/"]
+    allow_domains: ["worldbank.org"]
+    rate_limit: 1.0
+    method: requests
