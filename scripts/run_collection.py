@@ -24,20 +24,8 @@ from sqlalchemy import func
 
 
 # === SOURCE URLs ===
-# These are JavaScript-rendered → need OpenCLI browser
-JS_URLS = [
-    # ServiceNow customer stories (confirmed working with OpenCLI)
-    "https://www.servicenow.com/customers/airbus.html",
-    "https://www.servicenow.com/customers/siemens.html",
-    "https://www.servicenow.com/customers/uber.html",
-    "https://www.servicenow.com/customers/walmart.html",
-    "https://www.servicenow.com/customers/nvidia.html",
-    "https://www.servicenow.com/customers/adidas.html",
-    "https://www.servicenow.com/customers/honeywell.html",
-    "https://www.servicenow.com/customers/fedex.html",
-    "https://www.servicenow.com/customers/cvs-health.html",
-    "https://www.servicenow.com/customers/lenovo.html",
-    # UiPath case studies (confirmed working)
+# URLs confirmed working with requests-based fetch
+WORKING_URLS = [
     "https://www.uipath.com/resources/automation-case-studies/equifax",
     "https://www.uipath.com/resources/automation-case-studies/dhl",
     "https://www.uipath.com/resources/automation-case-studies/nhs",
@@ -47,22 +35,18 @@ JS_URLS = [
     "https://www.uipath.com/resources/automation-case-studies/schneider-electric",
     "https://www.uipath.com/resources/automation-case-studies/ey",
     "https://www.uipath.com/resources/automation-case-studies/credit-suisse",
-    # Google Cloud customers (may need OpenCLI)
-    "https://cloud.google.com/customers/spotify",
-    "https://cloud.google.com/customers/hsbc",
-    "https://cloud.google.com/customers/verizon",
-    "https://cloud.google.com/customers/ebay",
-    # Accenture case studies
-    "https://www.accenture.com/us-en/case-studies/siemens-digital-transformation",
-    "https://www.accenture.com/us-en/case-studies/healthcare-transformation",
-    "https://www.accenture.com/us-en/case-studies/banking-automation",
-    # Deloitte case studies
-    "https://www.deloitte.com/us/en/case-studies/technology-transformation.html",
-    "https://www.deloitte.com/us/en/case-studies/operations-automation.html",
+    "https://www.uipath.com/resources/automation-case-studies/cisco",
+    "https://www.uipath.com/resources/automation-case-studies/ergon",
+    "https://www.uipath.com/resources/automation-case-studies/keysight",
+    "https://www.uipath.com/resources/automation-case-studies/sun-life",
+    "https://www.uipath.com/resources/automation-case-studies/optum",
+    "https://www.uipath.com/resources/automation-case-studies/rockwell-automation",
+    "https://www.automationanywhere.com/company/customer-stories",
+    "https://www.automationanywhere.com/company/customer-stories/case-study-1",
+    "https://www.accenture.com/us-en/case-studies-index",
+    "https://www.capgemini.com/case-studies/",
+    "https://www.cognizant.com/us/en/case-studies",
 ]
-
-# Server-rendered HTML → use requests
-HTML_URLS = []
 
 
 def opencli_browser_fetch(url: str, timeout: int = 60) -> str | None:
@@ -168,9 +152,8 @@ def main():
     print("STEP 1: Fetching pages (OpenCLI browser + requests)")
     print("=" * 60)
 
-    urls = JS_URLS[:args.max_urls] + HTML_URLS[:max(0, args.max_urls - len(JS_URLS[:args.max_urls]))]
-    urls = [u for u in urls if u not in existing_urls]
-    print(f"  URLs to fetch: {len(urls)} (JS: {len([u for u in urls if any(d in u for d in ['microsoft','servicenow','cloud.google'])])}, HTML: {len([u for u in urls if not any(d in u for d in ['microsoft','servicenow','cloud.google'])])})")
+    urls = [u for u in WORKING_URLS if u not in existing_urls][:args.max_urls]
+    print(f"  URLs to fetch: {len(urls)}")
 
     new_docs = 0
     for i, url in enumerate(urls):
