@@ -147,7 +147,7 @@ def _pick(d, key, default=""):
 def generate_records(target=350):
     records = []
     org_counter = {}
-    tier_targets = {"gold": 120, "silver": 120, "bronze": 110}
+        tier_targets = {"gold": 250, "silver": 250, "bronze": 200}
 
     while len(records) < target:
         int_type = random.choice(list(INTERVENTIONS.keys()))
@@ -254,7 +254,7 @@ def generate_records(target=350):
 
 if __name__ == "__main__":
     import sys
-    target = int(sys.argv[1]) if len(sys.argv) > 1 else 350
+    target = int(sys.argv[1]) if len(sys.argv) > 1 else 500
     print(f"Generating {target} records...", file=sys.stderr)
     records = generate_records(target)
     print(json.dumps(records, indent=2))
