@@ -9,9 +9,12 @@ Requires: opencli browser bridge extension installed and connected.
 Test with: opencli doctor
 """
 
-import sys, os, json, time, uuid, hashlib, subprocess, re
+import sys, os, json, time, uuid, hashlib, subprocess, re, logging
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import urljoin
+
+logger = logging.getLogger("collect")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -24,25 +27,14 @@ from sqlalchemy import func
 
 
 # === SOURCE URLs ===
-# URLs confirmed working with requests-based fetch
-WORKING_URLS = [
-    "https://www.uipath.com/resources/automation-case-studies/equifax",
-    "https://www.uipath.com/resources/automation-case-studies/dhl",
-    "https://www.uipath.com/resources/automation-case-studies/nhs",
-    "https://www.uipath.com/resources/automation-case-studies/cognizant",
-    "https://www.uipath.com/resources/automation-case-studies/bank-of-america",
-    "https://www.uipath.com/resources/automation-case-studies/teleperformance",
-    "https://www.uipath.com/resources/automation-case-studies/schneider-electric",
-    "https://www.uipath.com/resources/automation-case-studies/ey",
-    "https://www.uipath.com/resources/automation-case-studies/credit-suisse",
-    "https://www.uipath.com/resources/automation-case-studies/cisco",
-    "https://www.uipath.com/resources/automation-case-studies/ergon",
-    "https://www.uipath.com/resources/automation-case-studies/keysight",
-    "https://www.uipath.com/resources/automation-case-studies/sun-life",
-    "https://www.uipath.com/resources/automation-case-studies/optum",
-    "https://www.uipath.com/resources/automation-case-studies/rockwell-automation",
+# Source listing pages to discover individual case study URLs
+SOURCE_LISTINGS = [
+    "https://www.uipath.com/resources/automation-case-studies",
+]
+
+# Individual case study URLs (direct links, bypass listing discovery)
+DIRECT_URLS = [
     "https://www.automationanywhere.com/company/customer-stories",
-    "https://www.automationanywhere.com/company/customer-stories/case-study-1",
     "https://www.accenture.com/us-en/case-studies-index",
     "https://www.capgemini.com/case-studies/",
     "https://www.cognizant.com/us/en/case-studies",
@@ -84,6 +76,27 @@ def opencli_browser_fetch(url: str, timeout: int = 60) -> str | None:
         return None
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
+
+
+def discover_case_study_urls(listing_url: str) -> list[str]:
+    """Scrape a listing page to find individual case study URLs."""
+    try:
+        import urllib.request
+        req = urllib.request.Request(listing_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        urls = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "/automation-case-studies/" in href and href not in ("/resources/automation-case-studies",):
+                full = urljoin("https://www.uipath.com", href)
+                urls.add(full)
+        return sorted(urls)[:30]
+    except Exception as e:
+        logger.warning(f"  Failed to discover URLs from {listing_url}: {e}")
+        return []
 
 
 def fetch_with_retry(url: str, use_browser: bool = False) -> tuple[str, str | None, str | None]:
@@ -147,17 +160,28 @@ def main():
     session = get_session()
     existing_urls = set(u for (u,) in session.query(Document.url).all() if u)
 
+    # === STEP 0: DISCOVER CASE STUDY URLs ===
+    print("\n" + "=" * 60)
+    print("STEP 0: Discovering case study URLs from listing pages")
+    print("=" * 60)
+    discovered = []
+    for listing in SOURCE_LISTINGS:
+        urls = discover_case_study_urls(listing)
+        discovered.extend(urls)
+        print(f"  {listing}: found {len(urls)} case study URLs")
+        time.sleep(2)
+
+    all_urls = discovered + DIRECT_URLS
+    all_urls = [u for u in all_urls if u not in existing_urls][:args.max_urls]
+    print(f"  Total new URLs to fetch: {len(all_urls)}")
+
     # === STEP 1: FETCH PAGES ===
     print("\n" + "=" * 60)
-    print("STEP 1: Fetching pages (OpenCLI browser + requests)")
+    print("STEP 1: Fetching pages")
     print("=" * 60)
-
-    urls = [u for u in WORKING_URLS if u not in existing_urls][:args.max_urls]
-    print(f"  URLs to fetch: {len(urls)}")
-
     new_docs = 0
-    for i, url in enumerate(urls):
-        print(f"  [{i+1}/{len(urls)}] Fetching: {url[:70]}...")
+    for i, url in enumerate(all_urls):
+        print(f"  [{i+1}/{len(all_urls)}] Fetching: {url[:70]}...")
         text, method = fetch_url(url)
         if text and len(text) > 500:
             doc = save_document(session, url, text, method or "unknown")
