@@ -65,19 +65,24 @@ JS_URLS = [
 HTML_URLS = []
 
 
-def opencli_browser_fetch(url: str, timeout: int = 30) -> str | None:
+def opencli_browser_fetch(url: str, timeout: int = 60) -> str | None:
     """Fetch page content using OpenCLI browser bridge."""
     import json
+    profile = os.environ.get("OPENCLI_PROFILE", "2dsmkwnt")
     try:
-        profile = os.environ.get("OPENCLI_PROFILE", "2dsmkwnt")
+        # Close any existing tab first (ignore errors)
+        subprocess.run(["opencli", "browser", profile, "close"], capture_output=True, text=True, timeout=10)
+    except: pass
+
+    try:
         result = subprocess.run(
-            ["opencli", "browser", profile, "open", url, "--window", "background"],
+            ["opencli", "browser", profile, "open", url],
             capture_output=True, text=True, timeout=timeout
         )
         if result.returncode != 0:
             return None
 
-        time.sleep(4)
+        time.sleep(5)
 
         result = subprocess.run(
             ["opencli", "browser", profile, "extract"],
@@ -86,9 +91,12 @@ def opencli_browser_fetch(url: str, timeout: int = 30) -> str | None:
         if result.returncode == 0:
             try:
                 data = json.loads(result.stdout)
-                return data.get("content", "") or data.get("text", "") or result.stdout
+                content = data.get("content", "") or data.get("text", "") or result.stdout
+                if len(content) > 100:
+                    return content
             except json.JSONDecodeError:
-                return result.stdout
+                if len(result.stdout) > 100:
+                    return result.stdout
         return None
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
@@ -118,13 +126,12 @@ def fetch_with_retry(url: str, use_browser: bool = False) -> tuple[str, str | No
 
 
 def fetch_url(url: str) -> tuple[str | None, str | None]:
-    """Fetch URL, trying OpenCLI browser first for JS-rendered sites, then requests."""
-    is_js = any(domain in url for domain in ["servicenow.com", "cloud.google.com"])
-    text, err, method = fetch_with_retry(url, use_browser=is_js)
+    """Fetch URL, trying OpenCLI browser first, then requests as fallback."""
+    text, err, method = fetch_with_retry(url, use_browser=True)
     if text:
         return text, method
-    text2, err2, _ = fetch_with_retry(url, use_browser=not is_js)
-    return text2, err2
+    text2, err2, _ = fetch_with_retry(url, use_browser=False)
+    return text2 if text2 else (text, err)
 
 
 def save_document(session, url: str, text: str, fetch_method: str) -> Document:
