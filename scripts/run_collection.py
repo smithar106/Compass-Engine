@@ -50,15 +50,16 @@ def load_discovered_urls() -> list[str]:
     seen = set()
     filtered = []
     for u in urls:
-        if u in seen: continue
-        seen.add(u)
-        # Keep URLs that look like individual case studies (contain relevant path segments)
+        base = u.split("#")[0].split("?")[0]
+        if base in seen:
+            continue
+        seen.add(base)
+        # Keep URLs that look like individual case studies
         if any(p in u for p in ["/case-studies/", "/customers/", "/automation-case-studies/", "/reports/", "/stories/", "/client-stories/"]):
-            # Remove anchor fragments for dedup but keep the base URL
-            base = u.split("#")[0]
-            if base and base not in seen:
-                seen.add(base)
-                filtered.append(base)
+            # Exclude listing pages (ends with / or has only the base pattern)
+            if base.rstrip("/").endswith("/customers") or base.endswith("/customers/"):
+                continue
+            filtered.append(base)
     return filtered
 
 
