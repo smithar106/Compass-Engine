@@ -27,18 +27,39 @@ from sqlalchemy import func
 
 
 # === SOURCE URLs ===
-# Source listing pages to discover individual case study URLs
-SOURCE_LISTINGS = [
-    "https://www.uipath.com/resources/automation-case-studies",
-]
+# Discovered URLs file from discover_sources.py
+DISCOVERED_URLS_FILE = Path(__file__).resolve().parent.parent / "data" / "registry" / "discovered_urls.json"
 
-# Individual case study URLs (direct links, bypass listing discovery)
-DIRECT_URLS = [
-    "https://www.automationanywhere.com/company/customer-stories",
-    "https://www.accenture.com/us-en/case-studies-index",
-    "https://www.capgemini.com/case-studies/",
-    "https://www.cognizant.com/us/en/case-studies",
-]
+def load_discovered_urls() -> list[str]:
+    """Load validated case study URLs from the discovery system."""
+    path = DISCOVERED_URLS_FILE
+    if not path.exists():
+        logger.warning(f"No discovered URLs at {path}. Run discover_sources.py --discover first.")
+        return []
+    with open(path) as f:
+        data = json.load(f)
+    urls = []
+    for source_name, source_data in data.items():
+        for entry in source_data.get("urls", []):
+            if isinstance(entry, str):
+                urls.append(entry)
+            elif isinstance(entry, dict):
+                u = entry.get("url") or entry.get("final_url", "")
+                if u: urls.append(u)
+    # Deduplicate and filter
+    seen = set()
+    filtered = []
+    for u in urls:
+        if u in seen: continue
+        seen.add(u)
+        # Keep URLs that look like individual case studies (contain relevant path segments)
+        if any(p in u for p in ["/case-studies/", "/customers/", "/automation-case-studies/", "/reports/", "/stories/", "/client-stories/"]):
+            # Remove anchor fragments for dedup but keep the base URL
+            base = u.split("#")[0]
+            if base and base not in seen:
+                seen.add(base)
+                filtered.append(base)
+    return filtered
 
 
 def opencli_browser_fetch(url: str, timeout: int = 60) -> str | None:
@@ -152,7 +173,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-key", help="DeepSeek/Anthropic API key", required=True)
-    parser.add_argument("--max-urls", type=int, default=30, help="Max URLs to fetch")
+    parser.add_argument("--max-urls", type=int, default=200, help="Max URLs to fetch (default 200)")
     parser.add_argument("--no-extract", action="store_true", help="Skip LLM extraction")
     args = parser.parse_args()
 
@@ -160,28 +181,26 @@ def main():
     session = get_session()
     existing_urls = set(u for (u,) in session.query(Document.url).all() if u)
 
-    # === STEP 0: DISCOVER CASE STUDY URLs ===
+    # === STEP 0: LOAD DISCOVERED URLs ===
     print("\n" + "=" * 60)
-    print("STEP 0: Discovering case study URLs from listing pages")
+    print("STEP 0: Loading discovered case study URLs")
     print("=" * 60)
-    discovered = []
-    for listing in SOURCE_LISTINGS:
-        urls = discover_case_study_urls(listing)
-        discovered.extend(urls)
-        print(f"  {listing}: found {len(urls)} case study URLs")
-        time.sleep(2)
+    all_urls = load_discovered_urls()
+    print(f"  Discovered URLs: {len(all_urls)}")
+    print(f"  New or existing URLs: {len(all_urls)}")
+    print(f"  Previously fetched: {sum(1 for u in all_urls if u in existing_urls)}")
 
-    all_urls = discovered + DIRECT_URLS
-    all_urls = [u for u in all_urls if u not in existing_urls][:args.max_urls]
-    print(f"  Total new URLs to fetch: {len(all_urls)}")
+    # === STEP 1: FETCH NEW PAGES ===
+    to_fetch = [u for u in all_urls if u not in existing_urls][:args.max_urls]
+    print(f"\n  New URLs to fetch: {len(to_fetch)}")
 
-    # === STEP 1: FETCH PAGES ===
     print("\n" + "=" * 60)
     print("STEP 1: Fetching pages")
     print("=" * 60)
+
     new_docs = 0
-    for i, url in enumerate(all_urls):
-        print(f"  [{i+1}/{len(all_urls)}] Fetching: {url[:70]}...")
+    for i, url in enumerate(to_fetch):
+        print(f"  [{i+1}/{len(to_fetch)}] Fetching: {url[:70]}...")
         text, method = fetch_url(url)
         if text and len(text) > 500:
             doc = save_document(session, url, text, method or "unknown")
@@ -189,7 +208,7 @@ def main():
             print(f"    OK ({method}, {len(text)} chars)")
         else:
             print(f"    FAILED ({method})")
-        time.sleep(2)
+        time.sleep(1.5)
 
     session.commit()
     print(f"\n  Fetched {new_docs} new documents")
