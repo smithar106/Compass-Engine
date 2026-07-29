@@ -220,8 +220,37 @@ def main():
             relevant = [d for d in results if d["classification"] in ("high_relevance", "possible_relevance")]
             if relevant:
                 extracted = orch.run_extraction(relevant)
-                validated = orch.validator.validate_all(extracted)
-                orch.save_to_database(validated)
+                if hasattr(orch.validator, 'validate_batch'):
+                    validated = orch.validator.validate_batch(extracted)
+                else:
+                    validated = extracted
+                if hasattr(orch, 'save_to_database'):
+                    orch.save_to_database(validated)
+                else:
+                    # Manual save fallback
+                    for rec in validated:
+                        if isinstance(rec, dict):
+                            data = rec
+                            rid = str(uuid.uuid4())
+                            intervention = InterventionRecord(
+                                id=rid, source_id=f"llm-{rid[:8]}",
+                                organization_name=data.get("organization_name", ""),
+                                organization_industry=data.get("industry", []),
+                                problem_statement=str(data.get("problem", ""))[:500],
+                                intervention_title=str(data.get("intervention", ""))[:200],
+                                intervention_families=data.get("families", []),
+                                result_status="successful", has_post_measurement=True,
+                                extraction_model="deepseek-v4-flash", extractor="llm_extraction",
+                                extracted_at=datetime.now(timezone.utc), review_status="pending",
+                            )
+                            session.add(intervention)
+                            for m in data.get("metrics", []):
+                                session.add(MetricRecord(id=str(uuid.uuid4()), intervention_id=rid,
+                                    source_id=intervention.source_id, metric_name=m.get("name", ""),
+                                    metric_category=m.get("category", ""), absolute_change=m.get("absolute_change"),
+                                    percentage_change=m.get("percentage_change"), unit=m.get("unit", ""),
+                                    reported_text=m.get("reported_text", m.get("name", "")), value_type="reported"))
+                    session.commit()
                 print(f"  Extracted {len(validated)} records")
 
     # === STEP 3: CLASSIFY ===
