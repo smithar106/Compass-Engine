@@ -176,6 +176,7 @@ def main():
     parser.add_argument("--api-key", help="DeepSeek/Anthropic API key", required=True)
     parser.add_argument("--max-urls", type=int, default=200, help="Max URLs to fetch (default 200)")
     parser.add_argument("--no-extract", action="store_true", help="Skip LLM extraction")
+    parser.add_argument("--re-extract", action="store_true", help="Re-extract all documents (not just unprocessed)")
     args = parser.parse_args()
 
     init_db()
@@ -217,54 +218,71 @@ def main():
     # === STEP 2: LLM EXTRACTION ===
     if not args.no_extract and args.api_key:
         print("\n" + "=" * 60)
-        print("STEP 2: LLM Extraction")
+        print("STEP 2: LLM Extraction (improved prompt)")
         print("=" * 60)
 
-        processed_ids = set()
-        for rid, in session.query(InterventionRecord.document_id).filter(InterventionRecord.document_id.isnot(None)).all():
-            if rid: processed_ids.add(rid)
+        if args.re_extract:
+            # Delete old low-quality extractions
+            old = session.query(InterventionRecord).filter(InterventionRecord.extractor == "llm_extraction").all()
+            for rec in old:
+                session.query(MetricRecord).filter_by(intervention_id=rec.id).delete()
+                session.delete(rec)
+            session.commit()
+            print(f"  Removed {len(old)} old extraction records for re-extraction")
+            docs = session.query(Document).filter(Document.cleaned_text.isnot(None), Document.crawl_status == "success").all()
+        else:
+            processed_ids = set()
+            for rid, in session.query(InterventionRecord.document_id).filter(InterventionRecord.document_id.isnot(None)).all():
+                if rid: processed_ids.add(rid)
+            docs = session.query(Document).filter(
+                Document.cleaned_text.isnot(None),
+                Document.crawl_status == "success",
+                ~Document.id.in_(processed_ids) if processed_ids else True
+            ).limit(100).all()
 
-        unprocessed = session.query(Document).filter(
-            Document.cleaned_text.isnot(None),
-            Document.crawl_status == "success",
-            ~Document.id.in_(processed_ids) if processed_ids else True
-        ).limit(100).all()
-
-        print(f"  Unprocessed documents: {len(unprocessed)}")
-        if unprocessed:
+        print(f"  Documents to extract: {len(docs)}")
+        if docs:
             orch = ExtractionOrchestrator()
             orch.set_api_key(args.api_key)
-            doc_list = [{"id": d.id, "title": d.title or "", "url": d.url or "", "text": d.cleaned_text or "", "source_type": "web"} for d in unprocessed]
+            doc_list = [{"id": d.id, "title": d.title or "", "url": d.url or "", "text": d.cleaned_text or "", "source_type": "web"} for d in docs]
             results, counts = orch.run_relevance_filter(doc_list)
             print(f"  Relevance: {counts}")
             relevant = [d for d in results if d["classification"] in ("high_relevance", "possible_relevance")]
             if relevant:
                 extracted = orch.run_extraction(relevant)
-                if hasattr(orch.validator, 'validate_batch'):
-                    validated = orch.validator.validate_batch(extracted)
-                else:
-                    validated = extracted
-                if hasattr(orch, 'save_to_database'):
-                    orch.save_to_database(validated)
-                else:
-                    # Manual save fallback
-                    for rec in validated:
-                        if isinstance(rec, dict):
-                            data = rec
-                            rid = str(uuid.uuid4())
-                            intervention = InterventionRecord(
-                                id=rid, source_id=f"llm-{rid[:8]}",
-                                organization_name=data.get("organization_name", ""),
-                                organization_industry=data.get("industry", []),
-                                problem_statement=str(data.get("problem", ""))[:500],
-                                intervention_title=str(data.get("intervention", ""))[:200],
-                                intervention_families=data.get("families", []),
-                                result_status="successful", has_post_measurement=True,
-                                extraction_model="deepseek-v4-flash", extractor="llm_extraction",
-                                extracted_at=datetime.now(timezone.utc), review_status="pending",
-                            )
-                            session.add(intervention)
-                            for m in data.get("metrics", []):
+                validated = orch.validator.validate_batch(extracted) if hasattr(orch.validator, 'validate_batch') else extracted
+                # Manual save with improved field mapping
+                for rec in validated:
+                    if isinstance(rec, dict):
+                        data = rec
+                        rid = str(uuid.uuid4())
+                        industry = data.get("organization_industry") or data.get("industry") or []
+                        if isinstance(industry, str): industry = [industry]
+                        bfunc = data.get("business_function") or ""
+                        outcome_metrics = data.get("outcomes") or data.get("metrics") or []
+                        duration = data.get("implementation_duration_value") or 0
+                        eq = data.get("evidence_quality") or {}
+                        intervention = InterventionRecord(
+                            id=rid, source_id=f"llm-{rid[:8]}",
+                            organization_name=data.get("organization_name", ""),
+                            organization_industry=industry,
+                            organization_employee_count=data.get("organization_employee_count"),
+                            problem_business_function=[bfunc] if bfunc else [],
+                            problem_statement=str(data.get("business_problem") or data.get("problem", ""))[:500],
+                            intervention_title=str(data.get("intervention_title") or data.get("intervention", ""))[:200],
+                            intervention_families=[data.get("intervention_category", "").lower()] if data.get("intervention_category") else [],
+                            intervention_vendors=data.get("intervention_vendors") or [],
+                            intervention_implementation_time_value=duration if duration else None,
+                            intervention_implementation_time_unit=data.get("implementation_duration_unit"),
+                            has_baseline=bool(data.get("baseline_description")),
+                            has_post_measurement=True,
+                            independently_verified=eq.get("independently_verified", False),
+                            vendor_reported=eq.get("is_vendor_reported", False),
+                            extraction_model="deepseek-v4-flash", extractor="llm_extraction_v2",
+                            extracted_at=datetime.now(timezone.utc), review_status="pending")
+                        session.add(intervention)
+                        outcome_metrics = data.get("outcomes") or data.get("metrics") or []
+                        for m in outcome_metrics:
                                 session.add(MetricRecord(id=str(uuid.uuid4()), intervention_id=rid,
                                     source_id=intervention.source_id, metric_name=m.get("name", ""),
                                     metric_category=m.get("category", ""), absolute_change=m.get("absolute_change"),
