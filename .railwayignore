@@ -1,0 +1,5 @@
+data/collector_v3.db
+venv/
+__pycache__/
+*.pyc
+web-articles/
