@@ -60,6 +60,10 @@ _STYLES = """
   .summary-box { background: #f9fafb; border: 1pt solid #eaecf0; padding: 14pt 16pt; margin-bottom: 16pt; }
   .summary-box p { font-size: 9.5pt; margin: 3pt 0; }
   .summary-box strong { color: #1d2939; }
+  .score-badge { display: inline-block; background: #2D6A4F; color: #fff; font-size: 18pt; font-weight: 700; padding: 4pt 12pt; border-radius: 4pt; font-family: Georgia, serif; }
+  .score-badge-alt { display: inline-block; background: #344054; color: #fff; font-size: 14pt; font-weight: 700; padding: 3pt 10pt; border-radius: 4pt; font-family: Georgia, serif; }
+  .recommended-tag { display: inline-block; background: #2D6A4F; color: #fff; font-size: 7pt; font-weight: 700; padding: 2pt 8pt; border-radius: 3pt; text-transform: uppercase; letter-spacing: 0.08em; }
+  .alternative-tag { display: inline-block; background: #475467; color: #fff; font-size: 7pt; font-weight: 700; padding: 2pt 8pt; border-radius: 3pt; text-transform: uppercase; letter-spacing: 0.08em; }
   .outcome-grid { display: flex; flex-wrap: wrap; gap: 10pt; margin-bottom: 16pt; }
   .outcome-card { background: #f9fafb; border: 1pt solid #eaecf0; padding: 10pt 14pt; flex: 1 0 170pt; }
   .outcome-card .value { font-family: Georgia, "Times New Roman", serif; font-size: 15pt; font-weight: 700; color: #1d2939; }
@@ -68,6 +72,20 @@ _STYLES = """
   table { width: 100%; border-collapse: collapse; margin-bottom: 16pt; font-size: 8.5pt; }
   th { background: #f9fafb; text-align: left; padding: 7pt 9pt; font-weight: 700; color: #344054; border-bottom: 1.5pt solid #d0d5dd; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.05em; }
   td { padding: 6pt 9pt; border-bottom: 1pt solid #eaecf0; color: #475467; }
+  .intervention-card { border: 1.5pt solid #d0d5dd; padding: 14pt 16pt; margin-bottom: 14pt; }
+  .intervention-card.recommended { border-color: #2D6A4F; background: #f6fef9; }
+  .intervention-card h3 { margin: 0 0 6pt 0; }
+  .score-row { display: flex; gap: 6pt; flex-wrap: wrap; margin: 8pt 0; }
+  .score-dim { background: #f9fafb; border: 1pt solid #eaecf0; padding: 6pt 10pt; flex: 1 0 140pt; font-size: 8pt; }
+  .score-dim .dim-label { font-weight: 700; color: #344054; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.05em; }
+  .score-dim .dim-score { font-family: Georgia, serif; font-size: 12pt; font-weight: 700; color: #1d2939; }
+  .score-dim .dim-reason { font-size: 7.5pt; color: #667085; }
+  .comparison-grid { display: flex; gap: 8pt; margin-bottom: 14pt; }
+  .comparison-col { flex: 1; border: 1pt solid #eaecf0; padding: 10pt; font-size: 8pt; }
+  .comparison-col h4 { font-size: 9pt; margin: 0 0 6pt 0; }
+  .comparison-col .stat { margin: 3pt 0; }
+  .comparison-col .stat-label { color: #667085; font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.05em; }
+  .comparison-col .stat-value { font-weight: 600; color: #1d2939; }
   .tier-gold { background: #fffaeb; color: #b54708; font-size: 6.5pt; font-weight: 700; padding: 2pt 6pt; border: 1pt solid #fedf89; }
   .tier-silver { background: #f2f4f7; color: #475467; font-size: 6.5pt; font-weight: 700; padding: 2pt 6pt; border: 1pt solid #d0d5dd; }
   .tier-bronze { background: #fff6ed; color: #c4320a; font-size: 6.5pt; font-weight: 700; padding: 2pt 6pt; border: 1pt solid #fed7aa; }
@@ -96,26 +114,168 @@ _STYLES = """
 """
 
 
+def _score_component_rows(breakdown: dict) -> str:
+    if not breakdown:
+        return ""
+    rows = []
+    for key, label in [
+        ("problem_alignment", "Problem Alignment"),
+        ("organizational_similarity", "Org Similarity"),
+        ("goal_alignment", "Goal Alignment"),
+        ("evidence_strength", "Evidence Strength"),
+        ("implementation_fit", "Implementation Fit"),
+        ("outcome_consistency", "Outcome Consistency"),
+    ]:
+        comp = breakdown.get(key, {})
+        if comp:
+            score_val = comp.get("score", 0)
+            if score_val is None:
+                score_val = 0
+            rows.append(f"""
+            <div class="score-dim">
+              <div class="dim-label">{label}</div>
+              <div class="dim-score">{float(score_val):.0f}</div>
+              <div class="dim-reason">{_v(comp.get('reason', ''))}</div>
+            </div>
+            """)
+    return '<div class="score-row">' + "".join(rows) + "</div>"
+
+
+def _intervention_card(si: dict, is_recommended: bool) -> str:
+    rank = si.get("rank", 0)
+    name = si.get("intervention_name", "")
+    score = si.get("match_score", 0)
+    label = si.get("label", "alternative")
+    evidence = si.get("evidence_strength", "")
+    difficulty = si.get("implementation_difficulty", "")
+    timeframe = si.get("estimated_timeframe", "")
+    rationale = si.get("rationale", "")
+    risks = si.get("top_risks", [])
+    advantages = si.get("key_advantages", [])
+    tradeoffs = si.get("key_tradeoffs", [])
+    breakdown = si.get("score_breakdown", {})
+    comparisons = si.get("comparable_implementations", [])
+
+    tag = '<span class="recommended-tag">Recommended</span>' if is_recommended else '<span class="alternative-tag">Alternative</span>'
+    badge_class = "score-badge" if is_recommended else "score-badge-alt"
+
+    comp_rows = ""
+    for c in comparisons[:3]:
+        comp_rows += f"""
+        <div class="comparable-card">
+          <div class="header"><span class="org">{_v(c.get('organization_name', ''))}</span></div>
+          <div class="detail"><strong>Outcome:</strong> {_v(c.get('documented_outcome', ''))}</div>
+          <div class="detail"><strong>Why comparable:</strong> {_v(c.get('comparability_explanation', ''))}</div>
+        </div>
+        """
+
+    risks_html = ""
+    if risks:
+        risks_html = '<p><strong>Top Risks:</strong></p><ul>' + "".join(f'<li>{_v(r)}</li>' for r in risks[:3]) + '</ul>'
+
+    return f"""
+    <div class="intervention-card{' recommended' if is_recommended else ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>{_v(name)}</h3>
+        <div>{tag}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12pt;margin:8pt 0;">
+        <div class="{badge_class}">{float(score):.0f}</div>
+        <div style="font-size:8pt;color:#667085;">match score</div>
+      </div>
+      <p style="font-size:9pt;">{_v(rationale)}</p>
+      <div style="display:flex;gap:16pt;font-size:8pt;color:#475467;margin:8pt 0;">
+        <span><strong>Evidence:</strong> {_v(evidence)}</span>
+        <span><strong>Difficulty:</strong> {_v(difficulty)}</span>
+        <span><strong>Timeline:</strong> {_v(timeframe)}</span>
+      </div>
+      <h4 style="font-size:8pt;margin:8pt 0 4pt 0;">Score Breakdown</h4>
+      {_score_component_rows(breakdown)}
+      {risks_html}
+      {f'<h4 style="font-size:8pt;margin:8pt 0 4pt 0;">Comparable Implementations</h4><div class="comparables-grid">{comp_rows}</div>' if comp_rows else ''}
+    </div>
+    """
+
+
+def _scored_interventions_section(data: dict) -> str:
+    scored = data.get("scored_interventions", [])
+    if not scored:
+        return ""
+    cards = ""
+    top_score = scored[0].get("match_score", 0) if scored else 0
+    for si in scored:
+        is_recommended = si.get("label") == "recommended"
+        score = si.get("match_score", 0)
+        if not is_recommended and abs(score - top_score) < 5:
+            si["rationale"] = (si.get("rationale", "") or "") + " Similarly matched to the top option."
+        cards += _intervention_card(si, is_recommended)
+    return f"""
+    <h2>Recommendations</h2>
+    {cards}
+    """
+
+
+def _comparison_view_section(data: dict) -> str:
+    scored = data.get("scored_interventions", [])
+    if len(scored) < 2:
+        return ""
+    cols = ""
+    for si in scored[:3]:
+        cols += f"""
+        <div class="comparison-col">
+          <h4>{_v(si.get('intervention_name', ''))}</h4>
+          <div style="font-size:14pt;font-weight:700;color:#1d2939;">{float(si.get('match_score', 0)):.0f}</div>
+          <div class="stat"><div class="stat-label">Impact</div><div class="stat-value">{_v(si.get('expected_impact', ''))[:60]}</div></div>
+          <div class="stat"><div class="stat-label">Evidence</div><div class="stat-value">{_v(si.get('evidence_strength', ''))}</div></div>
+          <div class="stat"><div class="stat-label">Difficulty</div><div class="stat-value">{_v(si.get('implementation_difficulty', ''))}</div></div>
+          <div class="stat"><div class="stat-label">Timeline</div><div class="stat-value">{_v(si.get('estimated_timeframe', ''))}</div></div>
+          <div style="margin-top:6pt;"><strong>Advantages:</strong></div>
+          <ul style="margin:2pt 0;padding-left:12pt;">{"".join(f'<li>{_v(a)}</li>' for a in si.get('key_advantages', [])[:2])}</ul>
+          <div style="margin-top:4pt;"><strong>Tradeoffs:</strong></div>
+          <ul style="margin:2pt 0;padding-left:12pt;">{"".join(f'<li>{_v(t)}</li>' for t in si.get('key_tradeoffs', [])[:2])}</ul>
+        </div>
+        """
+    return f"""
+    <h2>Comparison</h2>
+    <div class="comparison-grid">{cols}</div>
+    """
+
+
 def _exec_summary_section(data: dict) -> str:
-    top = (data.get("recommendations") or [{}])[0]
-    if not top:
+    scored = data.get("scored_interventions", [])
+    top_si = scored[0] if scored else None
+    top_rec = (data.get("recommendations") or [{}])[0]
+
+    if not top_rec and not top_si:
         return "<p>No recommendation available.</p>"
 
-    action = top.get("specific_action") or top.get("title", "")
-    category = top.get("category", "").replace("_", " ")
-    subtitle = top.get("subtitle", "")
-    rationale = top.get("rationale", "")
-    confidence = top.get("confidence", {})
-    es = top.get("evidence_summary", {})
+    if top_si:
+        name = top_si.get("intervention_name", "")
+        score = top_si.get("match_score", 0)
+        evidence = top_si.get("evidence_strength", "")
+        difficulty = top_si.get("implementation_difficulty", "")
+        rationale = top_si.get("rationale", "")
+        return f"""
+        <div class="summary-box">
+          <p><strong>Recommended intervention:</strong> {_v(name)}</p>
+          <p><strong>Match score:</strong> {score:.0f}/100</p>
+          <p><strong>Evidence:</strong> {_v(evidence)}</p>
+          <p><strong>Implementation difficulty:</strong> {_v(difficulty)}</p>
+          {f'<p><strong>Why:</strong> {_v(rationale)}</p>' if rationale else ''}
+        </div>
+        """
+
+    action = top_rec.get("specific_action") or top_rec.get("title", "")
+    category = top_rec.get("category", "").replace("_", " ")
+    confidence = top_rec.get("confidence", {})
+    es = top_rec.get("evidence_summary", {})
 
     return f"""
     <div class="summary-box">
       <p><strong>Evidence-supported intervention:</strong> {_v(action)}</p>
       <p><strong>Category:</strong> {_v(category)}</p>
-      {f'<p><strong>Description:</strong> {_v(subtitle)}</p>' if subtitle else ''}
       <p><strong>Confidence:</strong> {_pct(confidence.get("score", 0))} ({_v(confidence.get("label", ""))})</p>
       <p><strong>Evidence:</strong> {_v(es.get("total_comparables", 0))} comparable implementations ({_v(es.get("gold_count", 0))} gold, {_v(es.get("silver_count", 0))} silver, {_v(es.get("bronze_count", 0))} bronze)</p>
-      {f'<p><strong>Why:</strong> {_v(rationale)}</p>' if rationale else ''}
     </div>
     """
 
@@ -361,6 +521,47 @@ def generate_report_html(data: dict) -> str:
 
     problem = data.get("assessment_summary", {}).get("problem_statement", "")
     workflow = data.get("assessment_summary", {}).get("workflow", "").replace("_", " ")
+    scored = data.get("scored_interventions", [])
+
+    has_new_system = len(scored) > 0
+
+    if has_new_system:
+        return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Compass — Recommendation Report</title>{_STYLES}</head><body>
+
+<div class="logo">Compass</div>
+<div class="meta">
+  <span>Prepared: {_v(date_str)}</span>
+  <span>Workflow: {_v(workflow)}</span>
+  <span>Engine: {_v(data.get('engine_version', ''))} | Dataset: {_v(data.get('dataset_version', ''))}</span>
+</div>
+
+<h1>Executive Summary</h1>
+{_exec_summary_section(data)}
+
+{_scored_interventions_section(data)}
+
+{_comparison_view_section(data)}
+
+<div class="page-break"></div>
+<h2>Comparable Implementations</h2>
+{_comparables_section(data)}
+
+<h2>Risk Assessment</h2>
+{_risks_section(data)}
+
+{_assumptions_gaps_section(data)}
+
+<h2>Next Step</h2>
+{_next_step_section(data)}
+
+{_methodology_section(data)}
+
+<div class="footer-note">
+  This report was generated from the Compass evidence graph. Recommendations are based on multi-component scoring including problem alignment, organizational similarity, goal alignment, evidence strength, implementation fit, and outcome consistency. Findings are based on comparable real-world implementations and the information provided during assessment.
+</div>
+
+</body></html>"""
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Compass — Recommendation Report</title>{_STYLES}</head><body>

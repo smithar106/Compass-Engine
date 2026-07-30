@@ -1,24 +1,39 @@
 import logging
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response
-from compass_collector.api.schemas import InvestigationRequest, RecommendationResponse
+from compass_collector.api.schemas import (
+    InvestigationRequest,
+    RecommendationResponse,
+    InterventionSelectionRequest,
+    InterventionSelectionResponse,
+)
 from compass_collector.api.service import run_recommendation
-from compass_collector.api.storage import load_recommendation
+from compass_collector.api.storage import (
+    load_recommendation,
+    save_selection,
+    load_selection,
+    load_selection_by_recommendation,
+    load_score_breakdown,
+)
 from compass_collector.api.report import generate_report_html, generate_report_pdf
 from compass_collector.database import get_session
 from compass_collector.models.intervention import InterventionRecord
 from compass_collector.config.settings import DATA_DIR, DATABASE_URL
+from compass_collector.implementation.router import router as implementation_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compass-engine")
 
 app = FastAPI(
     title="Compass Recommendation Engine",
-    version="3.0.0",
+    version="3.1.0",
     docs_url="/docs",
 )
+
+app.include_router(implementation_router)
 
 
 @app.on_event("startup")
@@ -139,3 +154,93 @@ def get_report_pdf(rec_id: str):
             "Content-Disposition": f'attachment; filename="compass-recommendation-{today}.pdf"',
         },
     )
+
+
+@app.post("/api/recommendations/{rec_id}/select")
+def select_intervention(rec_id: str, req: InterventionSelectionRequest):
+    data = load_recommendation(rec_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+
+    existing = load_selection_by_recommendation(rec_id)
+    if existing:
+        raise HTTPException(status_code=409, detail="Intervention already selected for this recommendation")
+
+    scored = data.get("scored_interventions", [])
+    selected = next((s for s in scored if s.get("intervention_id") == req.selected_intervention_id), None)
+    if not selected:
+        raise HTTPException(status_code=400, detail="Selected intervention not found in recommendation results")
+
+    response = InterventionSelectionResponse(
+        selection_id=str(uuid.uuid4()),
+        recommendation_id=rec_id,
+        selected_intervention_id=req.selected_intervention_id,
+        selected_intervention_name=selected.get("intervention_name", ""),
+        recommendation_version=data.get("_schema_version", ""),
+        scoring_config_version=data.get("scoring_config_version", ""),
+        scoring_weights=data.get("scoring_weights_used", {}),
+        user_inputs_snapshot=data.get("assessment_summary", {}),
+        score_breakdown_snapshot=selected.get("score_breakdown", {}),
+        evidence_ids_used=[c.get("organization_name", "") for c in selected.get("comparable_implementations", [])],
+        selection_timestamp=datetime.now(timezone.utc).isoformat(),
+        status="active",
+    )
+    save_selection(response)
+    return response
+
+
+@app.get("/api/recommendations/{rec_id}/selection")
+def get_selection(rec_id: str):
+    sel = load_selection_by_recommendation(rec_id)
+    if not sel:
+        raise HTTPException(status_code=404, detail="No selection found for this recommendation")
+    return sel
+
+
+@app.get("/api/recommendations/{rec_id}/breakdown")
+def get_score_breakdown(rec_id: str):
+    stored = load_score_breakdown(rec_id)
+    if stored:
+        return stored
+    data = load_recommendation(rec_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    scored = data.get("scored_interventions", [])
+    return {
+        "recommendation_id": rec_id,
+        "scored_interventions": [
+            {
+                "intervention_id": s.get("intervention_id"),
+                "intervention_name": s.get("intervention_name"),
+                "match_score": s.get("match_score"),
+                "score_breakdown": s.get("score_breakdown"),
+            }
+            for s in scored
+        ],
+    }
+
+
+@app.get("/api/recommendations/{rec_id}/comparisons")
+def get_comparisons(rec_id: str):
+    data = load_recommendation(rec_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    scored = data.get("scored_interventions", [])
+    return {
+        "recommendation_id": rec_id,
+        "comparisons": [
+            {
+                "intervention_id": s.get("intervention_id"),
+                "intervention_name": s.get("intervention_name"),
+                "comparable_implementations": s.get("comparable_implementations", []),
+            }
+            for s in scored
+        ],
+    }
+
+
+@app.post("/api/recommendations/{rec_id}/regenerate")
+def regenerate_recommendation(rec_id: str, req: InvestigationRequest):
+    from compass_collector.api.service import run_recommendation
+    new_response = run_recommendation(req)
+    return new_response

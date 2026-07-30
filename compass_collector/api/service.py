@@ -1377,6 +1377,9 @@ def _build_recommendations(
 
 def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
     from compass_collector.analysis.recommendation import recommend
+    from compass_collector.analysis.candidate_retrieval import retrieve_candidates
+    from compass_collector.analysis.scoring_ranking import rank_interventions
+    from compass_collector.config.scoring_weights import get_scoring_config
 
     workflow = req.workflow or _infer_workflow(req.business_function)
     business_function = req.business_function or "operations"
@@ -1398,6 +1401,9 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
     recommendations = _build_recommendations(interventions, why, req)
     overall_conf = engine_result.get("overall_confidence", {})
 
+    candidates = retrieve_candidates(req)
+    scored_interventions, scoring_weights = rank_interventions(candidates, req)
+
     run_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
@@ -1415,7 +1421,12 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
         "budget_range": req.budget_range or "",
         "business_risk": req.business_risk or "",
         "process_stability": req.process_stability or "",
+        "geography": req.geography or "",
+        "constraints": req.constraints or [],
+        "implementation_capacity": req.implementation_capacity or "",
     }
+
+    scoring_config = get_scoring_config()
 
     impact_summary = ImpactSummary()
     if recommendations:
@@ -1434,12 +1445,13 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
     response = RecommendationResponse(
         recommendation_id=run_id,
         status="complete",
-        engine_version="3.0.0",
+        engine_version="3.1.0",
         dataset_version="v3",
         generated_at=now.isoformat(),
         assessment_summary=assessment_summary,
         impact_summary=impact_summary,
         recommendations=recommendations,
+        scored_interventions=scored_interventions,
         risks=recommendations[0].risks if recommendations else [],
         methodology={
             "evidence_count": overall_conf.get("breakdown", {}),
@@ -1450,6 +1462,9 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
         assumptions=top_rec.assumptions_detail if top_rec else [],
         information_gaps=top_rec.information_gaps if top_rec else [],
         next_validation_steps=[top_rec.next_validation_step] if top_rec and top_rec.next_validation_step else [],
+        scoring_config_version=scoring_config.version,
+        scoring_weights_used=scoring_weights,
+        evidence_graph_timestamp=now.isoformat(),
     )
 
     try:

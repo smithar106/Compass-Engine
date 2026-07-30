@@ -19,6 +19,76 @@ class InvestigationRequest(BaseModel):
     process_stability: str = ""
     previous_attempts: str = ""
     desired_outcome: str = ""
+    geography: str = ""
+    constraints: list[str] = []
+    implementation_capacity: str = ""
+
+
+class ScoreComponent(BaseModel):
+    score: float = 0.0
+    weight: float = 0.0
+    reason: str = ""
+
+
+class ScoreBreakdown(BaseModel):
+    problem_alignment: ScoreComponent = Field(default_factory=ScoreComponent)
+    organizational_similarity: ScoreComponent = Field(default_factory=ScoreComponent)
+    goal_alignment: ScoreComponent = Field(default_factory=ScoreComponent)
+    evidence_strength: ScoreComponent = Field(default_factory=ScoreComponent)
+    implementation_fit: ScoreComponent = Field(default_factory=ScoreComponent)
+    outcome_consistency: ScoreComponent = Field(default_factory=ScoreComponent)
+
+
+class ComparableImplementationComparison(BaseModel):
+    organization_name: str = ""
+    organization_type: str = ""
+    company_size_category: str = ""
+    industry: str = ""
+    problem_addressed: str = ""
+    intervention_used: str = ""
+    documented_outcome: str = ""
+    metric: str = ""
+    evidence_quality_score: float = 0.0
+    source_citation: str = ""
+    comparability_explanation: str = ""
+
+
+class ScoredInterventionResult(BaseModel):
+    intervention_id: str = ""
+    intervention_name: str = ""
+    rank: int = 0
+    label: str = "alternative"
+    match_score: float = 0.0
+    score_breakdown: ScoreBreakdown = Field(default_factory=ScoreBreakdown)
+    expected_impact: str = ""
+    evidence_strength: str = ""
+    implementation_difficulty: str = ""
+    estimated_timeframe: str = ""
+    top_risks: list[str] = []
+    key_advantages: list[str] = []
+    key_tradeoffs: list[str] = []
+    comparable_implementations: list[ComparableImplementationComparison] = []
+    rationale: str = ""
+
+
+class InterventionSelectionRequest(BaseModel):
+    recommendation_id: str = ""
+    selected_intervention_id: str = ""
+
+
+class InterventionSelectionResponse(BaseModel):
+    selection_id: str = ""
+    recommendation_id: str = ""
+    selected_intervention_id: str = ""
+    selected_intervention_name: str = ""
+    recommendation_version: str = ""
+    scoring_config_version: str = ""
+    scoring_weights: dict = {}
+    user_inputs_snapshot: dict = {}
+    score_breakdown_snapshot: dict = {}
+    evidence_ids_used: list[str] = []
+    selection_timestamp: str = ""
+    status: str = "active"
 
 
 class ComparableEvidence(BaseModel):
@@ -225,9 +295,13 @@ class RecommendationResponse(BaseModel):
     assessment_summary: dict = {}
     impact_summary: ImpactSummary = Field(default_factory=ImpactSummary)
     recommendations: list[Recommendation] = []
+    scored_interventions: list[ScoredInterventionResult] = []
     risks: list[dict] = []
     methodology: dict = {}
     methodology_summary: str = ""
     assumptions: list[Assumption] = []
     information_gaps: list[InformationGap] = []
     next_validation_steps: list[NextValidationStep] = []
+    scoring_config_version: str = ""
+    scoring_weights_used: dict = {}
+    evidence_graph_timestamp: str = ""
