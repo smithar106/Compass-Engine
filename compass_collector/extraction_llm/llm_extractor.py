@@ -5,52 +5,61 @@ from datetime import datetime
 import requests
 
 
-LLM_EXTRACTION_PROMPT = """You classify operational intervention evidence for Compass.
+LLM_EXTRACTION_PROMPT = """You are a research analyst extracting structured operational transformation records from business case studies for Compass.
 
-FIRST, classify into ONE tier:
-- tier1 (GOLD): Real org implementation with measured outcomes. Has: named org, operational problem, deployed intervention, before/after metrics.
-- tier2 (SILVER): Industry research/benchmarks (McKinsey, Gartner, surveys with aggregate stats).
-- tier3 (BRONZE): Academic paper proposing novel method/algorithm (no real org deployed it).
-- rejected: News without implementation evidence, opinions, product announcements without outcomes.
+Extract EVERY implementation detail present in the text. If a value is mentioned ANYWHERE in the text, extract it — do NOT leave it null.
 
-If rejected/tier3: ONLY output {"evidence_tier": "tier1/2/3/rejected", "rejection_reason": "..."} — nothing else.
+FIRST, classify into ONE evidence tier:
+- GOLD: Named organization with a REAL deployed intervention and MEASURED QUANTIFIED outcomes (percentages, dollar amounts, time reductions). Has baseline and post-implementation data.
+- SILVER: Named organization with a real deployed intervention and described outcomes (could be qualitative). Lacks quantified before/after comparison.
+- BRONZE: Named organization with an intervention but limited outcome detail. Industry research with aggregate statistics.
+- rejected: No real implementation. Opinions, product announcements without outcomes, generic news, hypothetical use cases.
 
-If tier1: Output ALL fields below. Exact JSON. No markdown.
+For GOLD and SILVER, extract EVERY field below. Do NOT leave fields null — use "" for text and 0 for numbers if not found. But if the text CONTAINS a value, you MUST extract it.
+
+REQUIRED: Extract the following fields with priority. If the text mentions any of these, you MUST include them:
+
+OUTPUT JSON:
 {
-  "evidence_tier": "tier1",
-  "organization_name": "...",
-  "organization_type": "company/government/healthcare/nonprofit/startup/enterprise/academic",
-  "organization_industry": ["healthcare", "finance", "manufacturing", "retail", "technology", "energy", "government"],
-  "organization_employee_count": null,
-  "organization_annual_revenue": null,
-  "business_problem": "operational problem, NOT technical",
-  "business_function": "sales/marketing/customer_support/finance/hr/it/engineering/operations/supply_chain/legal/compliance/product/research",
-  "workflow": "specific process like invoice processing",
-  "intervention_title": "...",
-  "intervention_category": "AI/Software/Workflow_Automation/Process_Redesign/Staffing/Hybrid",
-  "intervention_subcategories": ["rpa", "cloud_migration", "lean", "training"],
-  "intervention_software": [],
-  "intervention_vendors": [],
-  "teams_involved": ["IT", "operations"],
-  "pilot_used": false,
-  "alternatives_considered": [],
-  "baseline_description": "before state",
-  "baseline_metrics": [{"metric_name": "...", "value": 100, "unit": "hours"}],
-  "implementation_status": "completed/in_progress/abandoned/planned",
-  "implementation_duration_value": null, "implementation_duration_unit": "weeks/months",
-  "implementation_cost_value": null, "implementation_cost_currency": "USD",
-  "measurement_period_value": null, "measurement_period_unit": "months",
-  "outcomes": [{"metric_name": "...", "category": "time/cost/revenue/quality/satisfaction/adoption/risk", "baseline_value": null, "post_value": null, "absolute_change": null, "percentage_change": null, "direction": "positive/negative/neutral", "unit": "", "value_type": "observed/projected/estimated", "source_passage": "exact quote"}],
-  "result_summary": "one sentence",
-  "success_factors": [], "failure_conditions": [], "challenges": [], "lessons_learned": [], "unintended_consequences": [],
-  "evidence_quality": {"is_vendor_reported": false, "independently_verified": null, "has_control_group": null, "sample_size": null, "source_credibility": "high/medium/low"},
-  "source_passages": [{"field": "outcome", "passage": "exact quote"}],
-  "extraction_notes": ""
+  "organization_name": "extracted company/organization name",
+  "organization_industry": "MUST extract industry from text. Look for: industry sector, company description, vertical market. Common values: healthcare, finance, banking, insurance, manufacturing, retail, technology, telecommunications, energy, government, education, logistics, transportation, hospitality, media, agriculture, pharmaceuticals, construction, aerospace, automotive, professional_services, nonprofit. Choose the SINGLE best match.",
+  "organization_employee_count": EXACT NUMBER IF MENTIONED, else 0,
+  "business_problem": "specific operational problem being solved",
+  "business_function": "MUST extract. Options: sales, marketing, customer_support, finance, hr, it, engineering, operations, supply_chain, legal, compliance, product, procurement, research. Choose ONE best match.",
+  "workflow": "specific workflow or process name",
+  "intervention_title": "what was actually implemented or deployed",
+  "intervention_category": "ONE of: Workflow_Automation, AI, Software, Process_Redesign, Staffing, Hybrid",
+  "intervention_subcategories": ["list of specific technology/approach categories"],
+  "intervention_vendors": ["list of vendor/product names if mentioned"],
+  "baseline_description": "what was happening before",
+  "implementation_status": "completed/in_progress/abandoned",
+  "implementation_duration_value": EXACT NUMBER IF MENTIONED, else 0,
+  "implementation_duration_unit": "weeks/months/years/days" if duration mentioned,
+  "outcomes": [
+    {
+      "metric_name": "specific metric name",
+      "category": "time/cost/revenue/quality/satisfaction/adoption/efficiency/productivity",
+      "baseline_value": NUMBER IF MENTIONED,
+      "post_value": NUMBER IF MENTIONED,
+      "absolute_change": NUMBER IF MENTIONED,
+      "percentage_change": NUMBER IF MENTIONED (e.g. 30 for 30%%),
+      "unit": "percent/hours/dollars/points/FTE/etc",
+      "direction": "positive/negative",
+      "value_type": "observed/projected/estimated",
+      "source_passage": "EXACT QUOTE from the text supporting this metric"
+    }
+  ],
+  "result_summary": "one sentence summary of what happened",
+  "evidence_quality": {
+    "is_vendor_reported": true/false,
+    "independently_verified": true/false (true if source is a news article, government report, academic paper, or independent publication; false if vendor marketing or customer story on vendor site),
+    "source_credibility": "high/medium/low"
+  }
 }
 
-If tier2: Output {"evidence_tier": "tier2", "organizations_studied": [], "aggregate_statistics": "", "source_name": "", "evidence_notes": ""}
+If the text is not about a real operational transformation implementation, respond: {"evidence_tier": "rejected", "rejection_reason": "brief reason"}
 
-SOURCE TEXT BELOW — classify and extract:
+SOURCE TEXT:
 """
 
 
