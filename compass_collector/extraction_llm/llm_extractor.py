@@ -9,13 +9,29 @@ LLM_EXTRACTION_PROMPT = """You are a research analyst extracting structured oper
 
 Extract EVERY implementation detail present in the text. If a value is mentioned ANYWHERE in the text, extract it — do NOT leave it null.
 
-FIRST, classify into ONE evidence tier:
-- GOLD: Named organization with a REAL deployed intervention and MEASURED QUANTIFIED outcomes (percentages, dollar amounts, time reductions). Has baseline and post-implementation data.
-- SILVER: Named organization with a real deployed intervention and described outcomes (could be qualitative). Lacks quantified before/after comparison.
-- BRONZE: Named organization with an intervention but limited outcome detail. Industry research with aggregate statistics.
+FIRST, classify implementation detail and outcome credibility SEPARATELY, along with a single combined tier.
+
+IMPLEMENTATION EVIDENCE PROVENANCE (how well is the implementation documented):
+- vendor_documented: Named organization with implementation described by a vendor (e.g., vendor case study). Implementation steps, timeline, architecture may be detailed. HIGH signal for implementation detail, LOWER signal for outcome claims.
+- customer_documented: Named organization with implementation described by the customer themselves (e.g., engineering blog, conference talk). HIGH signal for both implementation detail and outcome claims.
+- independently_validated: Implementation described by a third party (e.g., news article, analyst report, non-vendor publication). HIGH signal for outcome credibility.
+- government_audited: Implementation audited by a government accountability office (GAO, NAO, etc.). HIGHEST signal for outcome credibility.
+- peer_reviewed: Implementation described in a peer-reviewed academic paper, journal, or conference proceeding. HIGH signal for both implementation detail and outcomes.
+- financial_disclosure: Implementation disclosed in SEC filings (10-K, 10-Q) or annual reports. HIGH signal for organizational impact and financial outcomes.
+
+OUTCOME EVIDENCE PROVENANCE (how credible are the outcome claims):
+- vendor_reported: Outcomes reported by the vendor selling the solution. Credibility is lower — treated as directional.
+- independently_verified: Outcomes verified by a non-vendor source (news, government report, audit, academic paper).
+- peer_reviewed_methodology: Outcomes measured using peer-reviewed methodology (controlled study, rigorous pre/post comparison).
+- government_audited_outcomes: Outcomes verified through independent government audit.
+
+COMBINED EVIDENCE TIER (for backward compatibility):
+- GOLD: Government_audited or peer_reviewed implementation with quantified outcomes and independently verified outcome evidence. Has baseline AND post-implementation data.
+- SILVER: Independently validated or customer_documented implementation with described outcomes. Has a named organization and real deployment.
+- BRONZE: Vendor_documented implementation with named organization and real deployment, but outcomes may be self-reported or unquantified.
 - rejected: No real implementation. Opinions, product announcements without outcomes, generic news, hypothetical use cases.
 
-For GOLD and SILVER, extract EVERY field below. Do NOT leave fields null — use "" for text and 0 for numbers if not found. But if the text CONTAINS a value, you MUST extract it.
+For all accepted tiers (GOLD, SILVER, BRONZE), extract EVERY field below. Do NOT leave fields null — use "" for text and 0 for numbers if not found. But if the text CONTAINS a value, you MUST extract it.
 
 REQUIRED: Extract the following fields with priority. If the text mentions any of these, you MUST include them:
 
@@ -52,8 +68,14 @@ OUTPUT JSON:
   "result_summary": "one sentence summary of what happened",
   "evidence_quality": {
     "is_vendor_reported": true/false,
-    "independently_verified": true/false (true if source is a news article, government report, academic paper, or independent publication; false if vendor marketing or customer story on vendor site),
-    "source_credibility": "high/medium/low"
+    "independently_verified": true/false,
+    "source_credibility": "high/medium/low",
+    "implementation_detail_score": 1-10 (how thoroughly is the implementation approach documented: architecture, timeline, stakeholders, roll-out steps, integrations, change management),
+    "outcome_credibility_score": 1-10 (how credible are the outcome claims: independently verified > customer-reported > vendor-reported),
+    "methodology_detail_score": 1-10 (how well is the measurement methodology described: baseline vs post-implementation, sample sizes, time periods, statistical methods),
+    "operational_insight_score": 1-10 (how much operational detail is present: team structure, governance, budget, organizational context, challenges encountered, lessons learned),
+    "implementation_provenance": "vendor_documented/customer_documented/independently_validated/government_audited/peer_reviewed/financial_disclosure",
+    "outcome_provenance": "vendor_reported/independently_verified/peer_reviewed_methodology/government_audited_outcomes"
   }
 }
 

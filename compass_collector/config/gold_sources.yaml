@@ -1,0 +1,118 @@
+# Gold evidence sources — curated, not discovered.
+# These are independently-verifiable sources of implementation and outcome evidence.
+# Each source is manually reviewed for signal quality before inclusion.
+
+sources:
+
+  # === GOVERNMENT AUDITORS ===
+  gao:
+    name: "U.S. Government Accountability Office"
+    root_domain: "https://www.gao.gov"
+    landing: "https://www.gao.gov/reports-testimonies"
+    url_patterns: ["/products/", "/reports/"]
+    provenance: "government_audit"
+    rate_limit: 1.0
+    notes: "Independent, nonpartisan audits of U.S. federal programs. High signal for implementation and outcome evidence."
+
+  nao_uk:
+    name: "UK National Audit Office"
+    root_domain: "https://www.nao.org.uk"
+    landing: "https://www.nao.org.uk/reports/"
+    url_patterns: ["/reports/"]
+    provenance: "government_audit"
+    rate_limit: 1.0
+    notes: "Independent audits of UK government programs. Excellent implementation detail and quantified outcomes."
+
+  # === RESEARCH INSTITUTES ===
+  nist:
+    name: "National Institute of Standards and Technology"
+    root_domain: "https://www.nist.gov"
+    landing: "https://www.nist.gov/publications"
+    url_patterns: ["/publications/"]
+    provenance: "peer_reviewed"
+    rate_limit: 1.0
+    notes: "Technology implementation guides, standards, and evaluation reports."
+
+  rand:
+    name: "RAND Corporation"
+    root_domain: "https://www.rand.org"
+    landing: "https://www.rand.org/pubs.html"
+    url_patterns: ["/pubs/", "/research_reports/"]
+    provenance: "independent_validation"
+    rate_limit: 1.0
+    notes: "Independent research reports on technology adoption, digital transformation, and policy implementation."
+
+  oecd:
+    name: "OECD"
+    root_domain: "https://www.oecd.org"
+    landing: "https://www.oecd.org/en/topics/digital-government.html"
+    url_patterns: ["/en/topics/", "/en/publications/"]
+    provenance: "independent_validation"
+    rate_limit: 1.0
+    notes: "Cross-country digital government surveys and implementation benchmarks."
+
+  # === ACADEMIC SOURCES ===
+  arxiv_cs:
+    name: "arXiv Computer Science"
+    root_domain: "https://arxiv.org"
+    landing: "https://arxiv.org/search/?query=implementation+automation&searchtype=all"
+    url_patterns: ["/abs/", "/html/", "/pdf/"]
+    provenance: "peer_reviewed"
+    rate_limit: 1.0
+    notes: "Pre-print server. Seed specific relevant papers rather than broad crawl. Filter by cs.AI, cs.SE, cs.HC."
+
+  # === FINANCIAL DISCLOSURES ===
+  sec_edgar:
+    name: "SEC EDGAR"
+    root_domain: "https://www.sec.gov"
+    landing: "https://www.sec.gov/cgi-bin/browse-edgar"
+    url_patterns: ["/cgi-bin/", "/Archives/", "/ix?doc=/Archives/"]
+    provenance: "financial_disclosure"
+    rate_limit: 1.0
+    notes: "10-K and 10-Q filings describing operational transformations. High signal for implementation detail."
+
+  # === INTERNATIONAL BODIES ===
+  world_bank:
+    name: "World Bank"
+    root_domain: "https://www.worldbank.org"
+    landing: "https://www.worldbank.org/en/projects-operations"
+    url_patterns: ["/en/projects/"]
+    provenance: "independent_validation"
+    rate_limit: 1.0
+    notes: "International development projects with detailed implementation documentation."
+
+# === EVIDENCE CAMPAIGNS ===
+# Each campaign targets a specific domain for focused evidence collection.
+campaigns:
+
+  customer_support_ai:
+    domain: "Customer Support AI"
+    goal: "50 independently-verified implementations"
+    target_sources: ["gao", "nao_uk", "rand", "oecd", "arxiv_cs", "sec_edgar"]
+    search_terms:
+      - "customer service automation implementation"
+      - "AI chatbot deployment government"
+      - "conversational AI case study"
+      - "customer support transformation"
+    status: "planned"
+    notes: "Target government contact center transformations, published case studies, and financial disclosures."
+
+  invoice_automation:
+    domain: "Invoice Automation"
+    goal: "100 implementations"
+    target_sources: ["gao", "nao_uk", "sec_edgar", "world_bank"]
+    search_terms:
+      - "invoice processing automation"
+      - "accounts payable transformation"
+      - "payment automation implementation"
+    status: "planned"
+
+  digital_identity:
+    domain: "Digital Identity"
+    goal: "75 independently-verified implementations"
+    target_sources: ["gao", "nao_uk", "oecd", "rand", "world_bank"]
+    search_terms:
+      - "digital identity implementation"
+      - "eID deployment"
+      - "identity verification system"
+    status: "planned"
