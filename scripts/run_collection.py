@@ -223,7 +223,7 @@ def main():
 
         if args.re_extract:
             # Delete old low-quality extractions
-            old = session.query(InterventionRecord).filter(InterventionRecord.extractor == "llm_extraction").all()
+            old = session.query(InterventionRecord).filter(InterventionRecord.extractor.in_(["llm_extraction", "llm_extraction_v2"])).all()
             for rec in old:
                 session.query(MetricRecord).filter_by(intervention_id=rec.id).delete()
                 session.delete(rec)
