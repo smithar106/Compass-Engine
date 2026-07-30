@@ -250,28 +250,27 @@ def main():
             relevant = [d for d in results if d["classification"] in ("high_relevance", "possible_relevance")]
             if relevant:
                 extracted = orch.run_extraction(relevant)
-                validated = orch.validator.validate_batch(extracted) if hasattr(orch.validator, 'validate_batch') else extracted
-                # Manual save with improved field mapping
-                for rec in validated:
-                    if isinstance(rec, dict):
-                        data = rec.get("extraction") or rec
-                        if not isinstance(data, dict) or not data.get("organization_name"):
-                            continue
-                        rid = str(uuid.uuid4())
-                        industry = data.get("organization_industry") or data.get("industry") or []
-                        if isinstance(industry, str): industry = [industry]
-                        bfunc = data.get("business_function") or ""
-                        outcome_metrics = data.get("outcomes") or data.get("metrics") or []
-                        duration = data.get("implementation_duration_value") or 0
-                        eq = data.get("evidence_quality") or {}
-                        intervention = InterventionRecord(
-                            id=rid, source_id=f"llm-{rid[:8]}",
-                            organization_name=data.get("organization_name", ""),
-                            organization_industry=industry,
-                            organization_employee_count=data.get("organization_employee_count"),
-                            problem_business_function=[bfunc] if bfunc else [],
-                            problem_statement=str(data.get("business_problem") or data.get("problem", ""))[:500],
-                            intervention_title=str(data.get("intervention_title") or data.get("intervention", ""))[:200],
+                validated = orch.validator.validate_batch(extracted) if hasattr(orch.validator, 'validate_batch') else []
+                # Save from ORIGINAL extraction results (validator strips the data)
+                for ext in extracted:
+                    data = ext.get("extraction") or ext
+                    if not isinstance(data, dict) or not data.get("organization_name"):
+                        continue
+                    rid = str(uuid.uuid4())
+                    industry = data.get("organization_industry") or data.get("industry") or []
+                    if isinstance(industry, str): industry = [industry]
+                    bfunc = data.get("business_function") or ""
+                    outcome_metrics = data.get("outcomes") or data.get("metrics") or []
+                    duration = data.get("implementation_duration_value") or 0
+                    eq = data.get("evidence_quality") or {}
+                    intervention = InterventionRecord(
+                        id=rid, source_id=f"llm-{rid[:8]}",
+                        organization_name=data.get("organization_name", ""),
+                        organization_industry=industry,
+                        organization_employee_count=data.get("organization_employee_count"),
+                        problem_business_function=[bfunc] if bfunc else [],
+                        problem_statement=str(data.get("business_problem") or data.get("problem", ""))[:500],
+                        intervention_title=str(data.get("intervention_title") or data.get("intervention", ""))[:200],
                             intervention_families=[data.get("intervention_category", "").lower()] if data.get("intervention_category") else [],
                             intervention_vendors=data.get("intervention_vendors") or [],
                             intervention_implementation_time_value=duration if duration else None,
@@ -282,16 +281,16 @@ def main():
                             vendor_reported=eq.get("is_vendor_reported", False),
                             extraction_model="deepseek-v4-flash", extractor="llm_extraction_v2",
                             extracted_at=datetime.now(timezone.utc), review_status="pending")
-                        session.add(intervention)
-                        outcome_metrics = data.get("outcomes") or data.get("metrics") or []
-                        for m in outcome_metrics:
-                                session.add(MetricRecord(id=str(uuid.uuid4()), intervention_id=rid,
-                                    source_id=intervention.source_id, metric_name=m.get("name", ""),
-                                    metric_category=m.get("category", ""), absolute_change=m.get("absolute_change"),
-                                    percentage_change=m.get("percentage_change"), unit=m.get("unit", ""),
-                                    reported_text=m.get("reported_text", m.get("name", "")), value_type="reported"))
-                    session.commit()
-                print(f"  Extracted {len(validated)} records")
+                    session.add(intervention)
+                    for m in outcome_metrics:
+                        session.add(MetricRecord(id=str(uuid.uuid4()), intervention_id=rid,
+                            source_id=intervention.source_id, metric_name=m.get("name", "") or m.get("metric_name", ""),
+                            metric_category=m.get("category", ""), absolute_change=m.get("absolute_change"),
+                            percentage_change=m.get("percentage_change"), unit=m.get("unit", ""),
+                            reported_text=m.get("reported_text", m.get("metric_name", "")), value_type="reported"))
+                session.commit()
+                saved_count = sum(1 for ext in extracted if isinstance(ext.get("extraction") or ext, dict) and (ext.get("extraction") or ext).get("organization_name"))
+                print(f"  Extracted {saved_count} records from {len(extracted)} extractions")
 
     # === STEP 3: CLASSIFY ===
     print("\n" + "=" * 60)
