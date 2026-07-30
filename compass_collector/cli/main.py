@@ -110,3 +110,63 @@ def cmd_reset():
         print("Database removed. Run 'init' to recreate.")
     else:
         print("No database found.")
+
+
+# ---------------------------------------------------------------------------
+# Ingest commands (new evidence pipeline)
+# ---------------------------------------------------------------------------
+
+def cmd_ingest_document(path_or_url: str, api_key: str = "", persist: bool = False):
+    """Ingest a single document: parse → extract → (optional) graph."""
+    from compass_collector.ingest.orchestrator import ingest_document
+    run = ingest_document(path_or_url, api_key, persist=persist)
+    return run
+
+
+def cmd_ingest_crawl(url: str, max_pages: int = 50, depth: int = 2, api_key: str = ""):
+    """Crawl a website, then ingest discovered documents."""
+    from compass_collector.ingest.orchestrator import ingest_document
+    from compass_collector.ingest.parser import fetch_url, parse_html, detect_document_type, is_url
+    from compass_collector.ingest import DocumentType
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+
+    visited = set()
+    to_visit = [(url, 0)]
+    results = []
+
+    while to_visit and len(visited) < max_pages:
+        current_url, current_depth = to_visit.pop(0)
+        if current_url in visited or current_depth > depth:
+            continue
+        visited.add(current_url)
+
+        print(f"  [{len(visited)}] {current_url[:70]}")
+        try:
+            html, final_url = fetch_url(current_url)
+            doc = parse_html(html, url=final_url)
+
+            # Extract claims
+            if api_key:
+                run = ingest_document(final_url, api_key)
+                results.append(run)
+
+            # Find more links if under max depth
+            if current_depth < depth:
+                soup = BeautifulSoup(html, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    href = urljoin(final_url, a["href"])
+                    same_domain = final_url.split("/")[2] in href if len(final_url.split("/")) > 2 else False
+                    if same_domain and href not in visited and not any(skip in href for skip in ["login", "careers", "privacy", "cookie"]):
+                        to_visit.append((href, current_depth + 1))
+        except Exception as e:
+            print(f"    Error: {e}")
+
+    print(f"\nCrawled {len(visited)} pages, ingested {len(results)} documents.")
+
+
+def cmd_ingest_status(run_id: str = ""):
+    """Show latest ingestion run status."""
+    from compass_collector.ingest import IngestionRun
+    print(f"Ingestion run: {run_id or 'latest'}")
+    print("(Run details stored in structured logs)")
