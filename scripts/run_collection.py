@@ -254,7 +254,9 @@ def main():
                 # Manual save with improved field mapping
                 for rec in validated:
                     if isinstance(rec, dict):
-                        data = rec
+                        data = rec.get("extraction") or rec
+                        if not isinstance(data, dict) or not data.get("organization_name"):
+                            continue
                         rid = str(uuid.uuid4())
                         industry = data.get("organization_industry") or data.get("industry") or []
                         if isinstance(industry, str): industry = [industry]
