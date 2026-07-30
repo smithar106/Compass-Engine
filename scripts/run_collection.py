@@ -247,9 +247,11 @@ def main():
             doc_list = [{"id": d.id, "title": d.title or "", "url": d.url or "", "text": d.cleaned_text or "", "source_type": "web"} for d in docs]
             results, counts = orch.run_relevance_filter(doc_list)
             print(f"  Relevance: {counts}")
-            relevant = [d for d in results if d["classification"] in ("high_relevance", "possible_relevance")]
-            if relevant:
-                extracted = orch.run_extraction(relevant)
+            relevant_ids = set(d["record_id"] for d in results if d["classification"] in ("high_relevance", "possible_relevance"))
+            extraction_docs = [d for d in doc_list if d.get("id") in relevant_ids]
+            print(f"  Documents for extraction: {len(extraction_docs)}")
+            if extraction_docs:
+                extracted = orch.run_extraction(extraction_docs)
                 validated = orch.validator.validate_batch(extracted) if hasattr(orch.validator, 'validate_batch') else []
                 # Save from ORIGINAL extraction results (validator strips the data)
                 for ext in extracted:
