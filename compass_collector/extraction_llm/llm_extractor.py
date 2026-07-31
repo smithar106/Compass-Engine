@@ -26,8 +26,13 @@ OUTCOME EVIDENCE PROVENANCE (how credible are the outcome claims):
 - government_audited_outcomes: Outcomes verified through independent government audit.
 
 COMBINED EVIDENCE TIER (for backward compatibility):
-- GOLD: Government_audited or peer_reviewed implementation with quantified outcomes and independently verified outcome evidence. Has baseline AND post-implementation data.
-- SILVER: Independently validated or customer_documented implementation with described outcomes. Has a named organization and real deployment.
+- GOLD: High-confidence CAUSAL implementation evidence. At least ONE of:
+    * Government audit (GAO/NAO/etc.) documenting an implementation with measured outcomes and explicit baseline vs post-implementation comparison.
+    * Public company SEC filing (10-K, 10-Q, 8-K) or annual report disclosing quantified business outcomes of an implementation (cost savings, productivity, processing time) with material detail.
+    * Peer-reviewed implementation study with quantified outcomes and described methodology (sample, time period, measurement approach).
+    * Randomized controlled trial, quasi-experimental, or independent-evaluator study with measured causal effect.
+  Must have BOTH a named organization (or clearly identified program/system) AND measured quantified outcomes (baseline and post values, or a documented percentage change). Financial disclosures of large-scale initiatives count even if the "baseline" is described in prose rather than as a numeric value, as long as the change is quantified.
+- SILVER: Named organization with a real deployed intervention and described outcomes. Source is independently validated, customer-documented, or financial disclosure WITHOUT full quantified before/after comparison. High implementation detail but outcome claims not fully measured.
 - BRONZE: Vendor_documented implementation with named organization and real deployment, but outcomes may be self-reported or unquantified.
 - rejected: No real implementation. Opinions, product announcements without outcomes, generic news, hypothetical use cases.
 
@@ -66,6 +71,18 @@ OUTPUT JSON:
     }
   ],
   "result_summary": "one sentence summary of what happened",
+  "outcome_block": {
+    "baseline_metric": "the measured value or state BEFORE the implementation, with units (e.g. '12 days average claims processing time', '4.2%% fulfillment cost')",
+    "post_metric": "the measured value or state AFTER the implementation, with units",
+    "percent_change": NUMBER (percent change from baseline to post, e.g. 67 for a reduction of 12 to 4 days), OR null,
+    "time_period": "measurement window, e.g. '6 months after deployment'",
+    "organization": "organization where the outcome was measured",
+    "implementation": "brief description of what was implemented that produced the outcome",
+    "measurement_method": "how the outcome was measured (company-reported financials, government audit, controlled study, operational system data, customer survey, etc.)",
+    "confidence": "high/medium/low (high = baseline+post both measured, medium = one measured one estimated, low = both estimated or anecdotal)",
+    "source_type": "sec_filing/earnings_call/annual_report/vendor_case_study/government_audit/academic_paper/company_blog",
+    "evidence_level": "causal/strong_correlation/correlational/directional (causal = controlled study or audited pre/post, strong_correlation = clear pre/post with controls, correlational = pre/post without controls, directional = qualitative claim without measured change)"
+  },
   "evidence_quality": {
     "is_vendor_reported": true/false,
     "independently_verified": true/false,

@@ -1,0 +1,82 @@
+# Curated URLs found via search (July 2026)
+# High-yield case study libraries and quantified implementation case studies.
+# Each contains multiple implementation examples with quantified outcomes.
+
+sources:
+  # === CASE STUDY LIBRARIES (high yield - multiple studies each) ===
+  whatfix_digital_transformation:
+    url: "https://whatfix.com/blog/digital-transformation-examples/"
+    title: "21 Examples of Digital Transformation Case Studies"
+    note: "Roundup of 21 implementation case studies with outcomes"
+  digitaldefynd_ai:
+    url: "https://digitaldefynd.com/IQ/artificial-intelligence-case-studies/"
+    title: "60 Detailed AI Case Studies"
+    note: "60 AI implementation case studies across industries"
+  aimultiple_rpa:
+    url: "https://aimultiple.com/robotic-process-automation"
+    title: "100+ RPA Use Cases with Real-Life Examples"
+    note: "100+ RPA implementations with quantified outcomes"
+  meegle_erp:
+    url: "https://www.meegle.com/en_us/topics/erp-system-implementation-case-studies"
+    title: "ERP System Implementation Case Studies"
+    note: "Multiple ERP implementation case studies"
+  erpfocus_erp:
+    url: "https://www.erpfocus.com/successful-erp-implementation-examples/"
+    title: "Successful ERP Implementation Examples"
+    note: "Real-world ERP implementations with outcomes"
+  ninetwothree_ai:
+    url: "https://www.ninetwothree.co/blog/ai-adoption-case-studies"
+    title: "8 Successful Enterprise AI Adoption Case Studies"
+    note: "Enterprise AI implementations with results"
+  nividous_rpa:
+    url: "https://nividous.com/blogs/rpa-case-study"
+    title: "Top 17 RPA Case Studies"
+    note: "17 RPA implementations with quantified savings"
+  marketingcoop_rpa:
+    url: "https://www.marketingscoop.com/ai/rpa-case-studies/"
+    title: "45 RPA Case Studies by Industry"
+    note: "45 RPA implementations across industries"
+  historytools_rpa:
+    url: "https://www.historytools.org/ai/rpa-case-studies/"
+    title: "45 RPA Case Studies - Data-Driven Analysis"
+    note: "45 RPA implementations with data-driven analysis"
+  digitaladoption_ai:
+    url: "https://www.digital-adoption.com/ai-in-logistics/"
+    title: "AI in Logistics: 17 Real-World Examples"
+    note: "17 AI logistics implementations"
+  appinventiv_ai:
+    url: "https://appinventiv.com/blog/artificial-intelligence-case-studies/"
+    title: "AI Case Studies: Business Innovation Examples"
+    note: "AI implementations with business outcomes"
+
+  # === CONSULTING / SYSTEM INTEGRATOR CASE STUDIES (quantified) ===
+  hcltech_digital:
+    url: "https://www.hcltech.com/case-study/digital-transformation-unlocks-700m-savings"
+    title: "Digital Transformation Unlocks $700M Savings (HCLTech)"
+    note: "Quantified digital transformation outcome"
+  techmahindra_50m:
+    url: "https://www.techmahindra.com/insights/case-study/"
+    title: "$50 Million Saved Through Digital Transformation (Tech Mahindra)"
+    note: "Quantified transformation savings"
+  solminica_roi:
+    url: "https://solminica.com/blog/42k-invested-180k-saved-428-roi-the-digital-transformation/"
+    title: "$42K Invested, $180K Saved, 428% ROI Digital Transformation"
+    note: "Detailed ROI case study with baseline/post"
+
+  # === MIT / ACADEMIC ===
+  mitsloan_ai:
+    url: "https://mitsloan.mit.edu/ideas-made-to-matter/practical-ai-implementation-success-stories"
+    title: "Practical AI Implementation: Success Stories (MIT Sloan)"
+    note: "MIT Sloan AI implementation case studies"
+
+  # === SPECIFIC IMPLEMENTATION STUDIES ===
+  ccconsulting_supplychain:
+    url: "https://www.ccoconsulting.com/ai-in-supply-chain-optimization-case-studies"
+    title: "AI in Supply Chain Management: Optimization & Case Studies"
+    note: "Supply chain AI implementations"
+
+  # === MICROSOFT COPILOT CUSTOMER ROI ===
+  msft_copilot_roi:
+    url: "https://microsoft.github.io/Analytics-Hub/customer-stories"
+    title: "Microsoft Copilot Customer Case Studies - Real ROI"
+    note: "Customer-reported Copilot ROI and adoption"

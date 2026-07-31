@@ -67,6 +67,17 @@ class InterventionRecord(Base):
     parser_version = Column(String, default="1.0")
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Provenance-based evidence model
+    implementation_provenance = Column(String, nullable=True)
+    outcome_provenance = Column(String, nullable=True)
+    implementation_detail_score = Column(Integer, nullable=True)
+    outcome_credibility_score = Column(Integer, nullable=True)
+    methodology_detail_score = Column(Integer, nullable=True)
+    operational_insight_score = Column(Integer, nullable=True)
+    outcome_block = Column(JSON, default=dict)
+    source_type = Column(String, nullable=True)
+    evidence_level = Column(String, nullable=True)
+
 
 class MetricRecord(Base):
     __tablename__ = "metric_records"
