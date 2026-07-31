@@ -51,13 +51,16 @@ campaigns:
         title: "Federal Workforce: OPM Needs to Improve IT Systems"
         description: "Federal HR IT system modernization"
 
-      # PDF versions of files.gao.gov reports
+      # PDF versions of files.gao.gov reports (accessible via files.gao.gov subdomain)
       - url: "https://files.gao.gov/reports/GAO-25-107653/index.html"
-        title: "Generative AI: Use and Federal Management (PDF)"
+        title: "Generative AI: Use and Federal Management"
         description: "Federal agency generative AI implementation, use cases, management practices"
       - url: "https://files.gao.gov/reports/GAO-26-107522/index.html"
-        title: "Information Technology: IRS Needs to Improve Management of AI (PDF)"
+        title: "Information Technology: IRS Needs to Improve Management of AI"
         description: "IRS AI implementation, challenges, and management recommendations"
+      - url: "https://files.gao.gov/reports/GAO-25-107062/index.html"
+        title: "Artificial Intelligence: DHS Needs to Improve Implementation"
+        description: "DHS AI implementation, acquisition, and management report"
 
   # ============================================================================
   # CAMPAIGN 2: OECD
@@ -92,50 +95,50 @@ campaigns:
   # CAMPAIGN 3: National Audit Offices
   # ============================================================================
   # Independently verified implementation evidence with quantified outcomes
+  # All URLs below verified accessible as of July 2026.
   # ============================================================================
   national_audit_offices:
     name: "National Audit Offices"
     provenance: "government_audited"
     urls:
-      # UK NAO
-      - url: "https://www.nao.org.uk/reports/department-for-work-and-pensions-digital-transformation/"
-        title: "DWP Digital Transformation"
-        description: "UK Department for Work and Pensions digital transformation implementation"
-      - url: "https://www.nao.org.uk/reports/digital-transformation-in-hmrc-2/"
-        title: "HMRC Digital Transformation"
-        description: "UK tax authority digital transformation implementation"
-      - url: "https://www.nao.org.uk/reports/the-introduction-of-the-common-platform-programme/"
-        title: "Common Platform Programme"
-        description: "UK criminal justice system IT implementation"
-      - url: "https://www.nao.org.uk/reports/improving-the-safety-of-patient-safety-investigations/"
-        title: "NHS Patient Safety Investigations"
-        description: "NHS digital health implementation"
-
-      # Australia ANAO
-      - url: "https://www.anao.gov.au/work/performance-audit/implementation-digital-health-record-system"
-        title: "AU Digital Health Record Implementation"
-        description: "Australian digital health record system implementation audit"
-      - url: "https://www.anao.gov.au/work/performance-audit/implementation-of-the-automated-passenger-processing-system"
-        title: "AU Automated Border Processing"
-        description: "Australian border automation implementation"
-      - url: "https://www.anao.gov.au/work/performance-audit/management-and-implementation-of-the-my-gov-platform"
-        title: "AU myGov Platform Implementation"
-        description: "Australian government services platform implementation"
-
-      # New Zealand OAG
-      - url: "https://oag.parliament.nz/reports/2023/managing-digital-transformation"
-        title: "NZ Managing Digital Transformation"
-        description: "New Zealand government digital transformation implementation audit"
-
-      # Hong Kong Audit Commission
-      - url: "https://www.aud.gov.hk/eng/pub_reports/pub_rpt.htm"
-        title: "HK Public Reports Index"
-        description: "Hong Kong audit reports on IT implementation and digital services"
-
-      # Sweden Riksrevisionen
-      - url: "https://www.riksrevisionen.se/en/audit-reports/audit-reports/2024/the-digitalisation-of-the-swedish-public-administration.html"
-        title: "SE Digitalisation of Public Administration"
-        description: "Swedish public administration digitalisation implementation audit"
+      # UK NAO — Digital/data/AI/transformation reports
+      - url: "https://www.nao.org.uk/reports/digital-transformation-in-government-addressing-the-barriers/"
+        title: "Digital Transformation in Government: Addressing the Barriers"
+        description: "UK government digital transformation implementation barriers and progress"
+      - url: "https://www.nao.org.uk/reports/national-savings-investments-business-transformation-programme/"
+        title: "National Savings and Investments Business Transformation Programme"
+        description: "UK NS&I business transformation implementation audit"
+      - url: "https://www.nao.org.uk/reports/use-of-artificial-intelligence-in-government/"
+        title: "Use of Artificial Intelligence in Government"
+        description: "UK government AI implementation across departments"
+      - url: "https://www.nao.org.uk/reports/update-on-government-shared-services-2026/"
+        title: "Update on Government Shared Services 2026"
+        description: "UK government shared services implementation progress"
+      - url: "https://www.nao.org.uk/reports/using-data-analytics-to-tackle-fraud-and-error/"
+        title: "Using Data Analytics to Tackle Fraud and Error"
+        description: "UK government data analytics implementation for fraud detection"
+      - url: "https://www.nao.org.uk/reports/electronic-monitoring-improving-resilience-to-meet-increasing-demand/"
+        title: "Electronic Monitoring: Improving Resilience"
+        description: "UK electronic monitoring system implementation"
+      - url: "https://www.nao.org.uk/reports/dsits-investment-in-research-infrastructure/"
+        title: "DSIT Investment in Research Infrastructure"
+        description: "UK digital research infrastructure investment implementation"
+      - url: "https://www.nao.org.uk/reports/civil-service-workforce/"
+        title: "Civil Service Workforce"
+        description: "UK civil service workforce digital transformation"
+      - url: "https://www.nao.org.uk/reports/the-government-finance-functions-strategy-to-2030/"
+        title: "Government Finance Function Strategy to 2030"
+        description: "UK government finance transformation implementation"
+      - url: "https://www.nao.org.uk/reports/police-productivity/"
+        title: "Police Productivity"
+        description: "UK police technology and process implementation"
+      # Older NAO reports with PDF access
+      - url: "https://www.nao.org.uk/wp-content/uploads/2023/03/digital-transformation-in-government.pdf"
+        title: "Digital Transformation in Government (2017)"
+        description: "UK government digital transformation progress audit"
+      - url: "https://www.nao.org.uk/reports/modernising-ageing-digital-services-defra/"
+        title: "Modernising Defra's Ageing Digital Services"
+        description: "UK Defra digital service modernization implementation"
 
   # ============================================================================
   # CAMPAIGN 4: NIST
