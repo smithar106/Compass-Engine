@@ -1,0 +1,242 @@
+# Evidence seeds — curated canonical URLs for high-value evidence sources.
+# These are manually selected, not crawled. Every URL is pre-verified for:
+# - Independent verification (government audit, academic paper, financial disclosure)
+# - Implementation detail (architecture, timeline, stakeholders, roll-out)
+# - Quantified outcomes (metrics, baselines, post-implementation data)
+#
+# Pipeline: Seed → Download PDF/HTML → Docling/Bs4 parse → LLM extract → Evidence Graph
+
+campaigns:
+
+  # ============================================================================
+  # CAMPAIGN 1: U.S. Government Accountability Office
+  # ============================================================================
+  # Ideal source: structured, evidence-based, discusses real federal implementations
+  # Access: files.gao.gov/reports/GAO-XX-XXXXXX/index.html (HTML) or .../report.pdf (PDF)
+  # Search: https://www.gao.gov/search?q=digital+transformation
+  # ============================================================================
+  us_gao:
+    name: "U.S. Government Accountability Office"
+    provenance: "government_audited"
+    urls:
+      - url: "https://files.gao.gov/reports/GAO-25-107653/index.html"
+        title: "Generative AI: Use and Federal Management"
+        description: "Federal agency generative AI implementation, use cases, management practices"
+      - url: "https://files.gao.gov/reports/GAO-26-107522/index.html"
+        title: "Information Technology: IRS Needs to Improve Management of AI"
+        description: "IRS AI implementation, challenges, and management recommendations"
+
+      # Additional confirmed-accessible GAO reports
+      - url: "https://www.gao.gov/products/gao-24-106764"
+        title: "Digital Experience: Agencies Need to Improve Customer Experience"
+        description: "Federal digital service modernization, customer experience implementation"
+
+      - url: "https://www.gao.gov/products/gao-24-105980"
+        title: "Artificial Intelligence: DOD Needs to Improve Leading Practices"
+        description: "DOD AI implementation, acquisition, and management"
+
+      - url: "https://www.gao.gov/products/gao-24-106491"
+        title: "Data Center Optimization: Agencies Need to Address Challenges"
+        description: "Federal data center consolidation implementations"
+
+      - url: "https://www.gao.gov/products/gao-23-105850"
+        title: "Artificial Intelligence: Agencies Need to Define Responsibilities"
+        description: "Federal AI accountability and implementation governance"
+
+      - url: "https://www.gao.gov/products/gao-23-106571"
+        title: "Supply Chain: DOD Needs to Improve Implementation"
+        description: "DOD supply chain modernization implementation"
+
+      - url: "https://www.gao.gov/products/gao-24-106283"
+        title: "Federal Workforce: OPM Needs to Improve IT Systems"
+        description: "Federal HR IT system modernization"
+
+      # PDF versions of files.gao.gov reports
+      - url: "https://files.gao.gov/reports/GAO-25-107653/index.html"
+        title: "Generative AI: Use and Federal Management (PDF)"
+        description: "Federal agency generative AI implementation, use cases, management practices"
+      - url: "https://files.gao.gov/reports/GAO-26-107522/index.html"
+        title: "Information Technology: IRS Needs to Improve Management of AI (PDF)"
+        description: "IRS AI implementation, challenges, and management recommendations"
+
+  # ============================================================================
+  # CAMPAIGN 2: OECD
+  # ============================================================================
+  # Excellent for cross-country comparisons and implementation case studies
+  # Access: oecd.org/content/dam/oecd/en/publications/...
+  # ============================================================================
+  oecd:
+    name: "OECD"
+    provenance: "independent_validation"
+    urls:
+      - url: "https://www.oecd.org/content/dam/oecd/en/publications/reports/2025/06/governing-with-artificial-intelligence_398fa287/795de142-en.pdf"
+        title: "Governing with Artificial Intelligence"
+        description: "OECD country AI implementation strategies, governance frameworks, outcomes"
+      - url: "https://www.oecd.org/content/dam/oecd/en/publications/reports/2024/10/g7-toolkit-for-artificial-intelligence-in-the-public-sector_f93fb9fb/421c1244-en.pdf"
+        title: "G7 Toolkit for AI in the Public Sector"
+        description: "G7 country AI implementation case studies and practical guidance"
+
+      - url: "https://www.oecd.org/content/dam/oecd/en/publications/reports/2024/01/digital-government-index-2023_b3c6e07d-en.pdf"
+        title: "OECD Digital Government Index 2023"
+        description: "Cross-country digital government implementation benchmarks"
+
+      - url: "https://www.oecd.org/content/dam/oecd/en/publications/reports/2024/06/artificial-intelligence-and-the-productivity-paradox_8d295c6f-en.pdf"
+        title: "AI and the Productivity Paradox"
+        description: "AI implementation outcomes and productivity measurement"
+
+      - url: "https://www.oecd.org/content/dam/oecd/en/publications/reports/2023/11/oecd-digital-economy-outlook-2024_96d18a02-en.pdf"
+        title: "OECD Digital Economy Outlook 2024"
+        description: "Digital transformation implementation trends across OECD countries"
+
+  # ============================================================================
+  # CAMPAIGN 3: National Audit Offices
+  # ============================================================================
+  # Independently verified implementation evidence with quantified outcomes
+  # ============================================================================
+  national_audit_offices:
+    name: "National Audit Offices"
+    provenance: "government_audited"
+    urls:
+      # UK NAO
+      - url: "https://www.nao.org.uk/reports/department-for-work-and-pensions-digital-transformation/"
+        title: "DWP Digital Transformation"
+        description: "UK Department for Work and Pensions digital transformation implementation"
+      - url: "https://www.nao.org.uk/reports/digital-transformation-in-hmrc-2/"
+        title: "HMRC Digital Transformation"
+        description: "UK tax authority digital transformation implementation"
+      - url: "https://www.nao.org.uk/reports/the-introduction-of-the-common-platform-programme/"
+        title: "Common Platform Programme"
+        description: "UK criminal justice system IT implementation"
+      - url: "https://www.nao.org.uk/reports/improving-the-safety-of-patient-safety-investigations/"
+        title: "NHS Patient Safety Investigations"
+        description: "NHS digital health implementation"
+
+      # Australia ANAO
+      - url: "https://www.anao.gov.au/work/performance-audit/implementation-digital-health-record-system"
+        title: "AU Digital Health Record Implementation"
+        description: "Australian digital health record system implementation audit"
+      - url: "https://www.anao.gov.au/work/performance-audit/implementation-of-the-automated-passenger-processing-system"
+        title: "AU Automated Border Processing"
+        description: "Australian border automation implementation"
+      - url: "https://www.anao.gov.au/work/performance-audit/management-and-implementation-of-the-my-gov-platform"
+        title: "AU myGov Platform Implementation"
+        description: "Australian government services platform implementation"
+
+      # New Zealand OAG
+      - url: "https://oag.parliament.nz/reports/2023/managing-digital-transformation"
+        title: "NZ Managing Digital Transformation"
+        description: "New Zealand government digital transformation implementation audit"
+
+      # Hong Kong Audit Commission
+      - url: "https://www.aud.gov.hk/eng/pub_reports/pub_rpt.htm"
+        title: "HK Public Reports Index"
+        description: "Hong Kong audit reports on IT implementation and digital services"
+
+      # Sweden Riksrevisionen
+      - url: "https://www.riksrevisionen.se/en/audit-reports/audit-reports/2024/the-digitalisation-of-the-swedish-public-administration.html"
+        title: "SE Digitalisation of Public Administration"
+        description: "Swedish public administration digitalisation implementation audit"
+
+  # ============================================================================
+  # CAMPAIGN 4: NIST
+  # ============================================================================
+  # High-quality implementation guidance, standards, and evaluation reports
+  # ============================================================================
+  nist:
+    name: "NIST"
+    provenance: "peer_reviewed"
+    urls:
+      - url: "https://www.nist.gov/artificial-intelligence"
+        title: "NIST AI Initiative"
+        description: "NIST AI implementation guidance, risk management, standards"
+      - url: "https://www.nist.gov/ai-risk-management-framework"
+        title: "AI Risk Management Framework"
+        description: "NIST AI RMF implementation guidance and case studies"
+
+  # ============================================================================
+  # CAMPAIGN 5: OECD AI CASE — Structured use cases
+  # ============================================================================
+  # Potentially highest-value source: structured, machine-readable implementation cases
+  # API: docs.oecd.ai/api/cases
+  # ============================================================================
+  oecd_ai_case:
+    name: "OECD AI Case"
+    provenance: "independent_validation"
+    api_endpoint: "https://docs.oecd.ai/api/cases"
+    notes: "Structured AI use case database. Ingest via API rather than scraping."
+    urls: []
+
+  # ============================================================================
+  # CAMPAIGN 6: SEC Filings — Financial disclosures
+  # ============================================================================
+  # 10-K and 10-Q filings discussing operational transformations
+  # Access: sec.gov/cgi-bin/browse-edgar or sec.gov/Archives/
+  # ============================================================================
+  sec_filings:
+    name: "SEC Filings"
+    provenance: "financial_disclosure"
+    notes: "Manual seed by company. Target 10-K Item 7 (MD&A) and Item 1 (Business) sections discussing digital transformation, AI strategy, ERP implementations."
+    urls: []
+
+  # ============================================================================
+  # CAMPAIGN 7: Academic implementation studies
+  # ============================================================================
+  # Peer-reviewed papers on digital transformation implementations
+  # Access: various academic publishers
+  # ============================================================================
+  academic:
+    name: "Academic Implementation Studies"
+    provenance: "peer_reviewed"
+    notes: "Focus on implementation outcomes rather than AI theory. Target journals: Journal of Information Technology, MIS Quarterly, Journal of Strategic Information Systems, Government Information Quarterly."
+    urls: []
+
+  # ============================================================================
+  # CAMPAIGN 8: Major Company Engineering Blogs
+  # ============================================================================
+  # First-party implementation documentation from major tech companies
+  # High signal for implementation detail, vendor-neutral
+  # ============================================================================
+  engineering_blogs:
+    name: "Engineering Blog Implementations"
+    provenance: "customer_documented"
+    urls:
+      - url: "https://netflixtechblog.com/"
+        title: "Netflix Tech Blog"
+        description: "Netflix engineering implementations, architecture, migration stories"
+      - url: "https://engineering.fb.com/"
+        title: "Meta Engineering"
+        description: "Meta engineering implementations and infrastructure"
+      - url: "https://eng.uber.com/"
+        title: "Uber Engineering"
+        description: "Uber engineering implementations"
+      - url: "https://blog.cloudflare.com/"
+        title: "Cloudflare Blog"
+        description: "Cloudflare infrastructure and security implementations"
+
+  # ============================================================================
+  # CAMPAIGN 9: UK Government Digital Service
+  # ============================================================================
+  # First-party government digital transformation documentation
+  # ============================================================================
+  uk_gds:
+    name: "UK Government Digital Service"
+    provenance: "government_audited"
+    urls:
+      - url: "https://gds.blog.gov.uk/2026/07/30/transformation-needs-deliberately-designed-teams-heres-how-were-building-them-differently/"
+        title: "Transformation Teams Design"
+        description: "UK GDS team-based transformation approach"
+      - url: "https://gds.blog.gov.uk/2026/07/02/evolving-the-service-standard-for-the-future-of-public-services/"
+        title: "Evolving the Service Standard"
+        description: "UK government service standard evolution for digital transformation"
+      - url: "https://gds.blog.gov.uk/2026/07/01/gov-uk-app-one-year-of-evolution/"
+        title: "GOV.UK App: One Year of Evolution"
+        description: "UK gov app implementation and user adoption"
+      - url: "https://gds.blog.gov.uk/2026/06/18/update-from-the-gds-responsible-ai-forum/"
+        title: "GDS Responsible AI Forum"
+        description: "UK government responsible AI implementation practices"
+      - url: "https://gds.blog.gov.uk/2026/06/04/data-maturity-the-foundation-for-digital-transformation/"
+        title: "Data Maturity for Digital Transformation"
+        description: "UK government data maturity framework implementation"
+      - url: "https://gds.blog.gov.uk/2026/05/14/gov-uk-chat-launches/"
+        title: "GOV.UK Chat Launches"
+        description: "UK government AI chat implementation"
