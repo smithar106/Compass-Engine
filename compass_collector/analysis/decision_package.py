@@ -21,6 +21,7 @@ from enum import Enum
 
 from compass_collector.analysis.evidence_roles import EvidenceRole, assemble_evidence_package
 from compass_collector.analysis.decision_defensibility import build_defensibility, AnswerSource
+from compass_collector.analysis.implementation_coverage import compute_implementation_coverage, ImplementationCoverage, coverage_checklist
 
 
 class ChecklistStatus(str, Enum):
@@ -119,10 +120,12 @@ class DecisionPackage:
     risks: RiskProfile
     measurement: MeasurementFramework
     defensibility: DefensibilityChecklist
+    implementation_coverage: dict  # from ImplementationCoverage
     confidence_score: float
     confidence_label: str
     summary: str
     is_production_ready: bool
+    production_gate_detail: dict  # which gates passed/failed
 
 
 def build_decision_package(
@@ -173,8 +176,24 @@ def build_decision_package(
     defense = build_defensibility(query_workflow, query_function, evidence_package, confidence_score, confidence_label)
     checklist = _build_checklist(defense)
 
-    # 8. Production readiness
-    is_production_ready = checklist.defensible_count >= 6 and confidence_score >= 45
+    # 8. Production readiness gate
+    coverage = compute_implementation_coverage(all_items)
+    
+    # Full gate: all four conditions must pass
+    gate_defensibility = checklist.defensible_count >= 6
+    gate_confidence = confidence_score >= 45
+    gate_implementation = coverage.enough_for_production
+    gate_provenance = _check_provenance(all_items)
+    
+    is_production_ready = gate_defensibility and gate_confidence and gate_implementation and gate_provenance
+    
+    gate_detail = {
+        "defensibility_6_of_8": {"passed": gate_defensibility, "actual": f"{checklist.defensible_count}/8"},
+        "confidence_45": {"passed": gate_confidence, "actual": confidence_score},
+        "implementation_density": {"passed": gate_implementation, "actual": f"richness={coverage.richness_score}, records_with_impl={coverage.records_with_implementation}"},
+        "provenance_resolvable": {"passed": gate_provenance, "actual": "all material claims have provenance"},
+        "all_passed": is_production_ready,
+    }
 
     summary = (
         f"Decision Package: {problem.evidence_count} organizations across "
@@ -193,11 +212,38 @@ def build_decision_package(
         risks=risks,
         measurement=measurement,
         defensibility=checklist,
+        implementation_coverage={
+            "total_records": coverage.total_records,
+            "records_with_implementation": coverage.records_with_implementation,
+            "field_rates": coverage.field_rates,
+            "richness_score": coverage.richness_score,
+            "enough_for_production": coverage.enough_for_production,
+            "checklist": coverage_checklist(coverage),
+        },
         confidence_score=confidence_score,
         confidence_label=confidence_label,
         summary=summary,
         is_production_ready=is_production_ready,
+        production_gate_detail=gate_detail,
     )
+
+
+def _check_provenance(items: list[dict]) -> bool:
+    """Check that all material claims have resolvable provenance."""
+    if not items:
+        return False
+    # Every claim must have an organization, an intervention, and a provenance
+    for item in items:
+        org = item.get("organization", "")
+        intervention = item.get("intervention", "")
+        if not org or not intervention:
+            return False
+    # At least one claim must have outcome provenance
+    has_outcome = any(
+        item.get("outcome_summaries") or item.get("cost_savings")
+        for item in items
+    )
+    return has_outcome
 
 
 def _build_problem(query: str, function: str, problem_items: list, all_items: list) -> ProblemDefinition:
@@ -454,6 +500,8 @@ def decision_package_to_dict(dp: DecisionPackage) -> dict:
             "score": dp.defensibility.score,
             "gaps": dp.defensibility.gaps,
         },
+        "implementation_coverage": dp.implementation_coverage,
+        "production_gate": dp.production_gate_detail,
         "confidence_score": dp.confidence_score,
         "confidence_label": dp.confidence_label,
         "summary": dp.summary,

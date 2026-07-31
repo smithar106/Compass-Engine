@@ -5,9 +5,21 @@ from datetime import datetime
 import requests
 
 
-LLM_EXTRACTION_PROMPT = """You are a research analyst extracting structured operational transformation records from business case studies for Compass.
+LLM_EXTRACTION_PROMPT = """You are a research analyst extracting structured operational transformation records for Compass — a Decision Intelligence Engine.
 
-Extract EVERY implementation detail present in the text. If a value is mentioned ANYWHERE in the text, extract it — do NOT leave it null.
+Extract EVERY implementation detail present in the text. Compass needs to answer 10 specific questions for every recommendation. Extract the evidence that answers them:
+
+1. What sequence of steps was used? → implementation_pattern
+2. Was there a pilot? → pilot_structure
+3. How long did rollout take? → implementation_duration_value + unit
+4. Which systems were integrated? → intervention_software + intervention_vendors
+5. Who owned implementation? → executive_sponsor + key_decision_makers + implementation_team_structure
+6. Which partner or internal team delivered it? → implementation_partner
+7. What governance model was used? → governance_model
+8. What change-management actions were required? → change_management + training_approach
+9. What failed or had to be adjusted? → lessons_learned + implementation_challenges
+10. What validation gate preceded scaling? → success_criteria
+
 
 FIRST, classify implementation detail and outcome credibility SEPARATELY, along with a single combined tier.
 
