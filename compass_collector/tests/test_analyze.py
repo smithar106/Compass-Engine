@@ -6,6 +6,9 @@ os.environ["COLLECTOR_DATABASE_URL"] = "sqlite:///" + tempfile.mkdtemp() + "/ana
 
 from compass_collector.database import Base, engine  # noqa: E402
 from compass_collector.models.analysis_session import AnalysisSession  # noqa: E402,F401
+from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord  # noqa: E402,F401
+from compass_collector.models.document import Document  # noqa: E402,F401
+from compass_collector.models.source import SourceRegistry  # noqa: E402,F401
 
 Base.metadata.create_all(bind=engine)
 
@@ -242,6 +245,26 @@ def test_answers_produce_materially_different_context_a_vs_b(monkeypatch):
     assert ra["answers"]["judgment_requirement"] != rb["answers"]["judgment_requirement"]
     assert len(ra["retrieval_snapshots"]) >= 2
     assert ra["status"] == "decision_ready"
+
+
+def test_metadata_schema():
+    from compass_collector.api.app import get_metadata
+
+    m = get_metadata()
+    for key in [
+        "published_records",
+        "unique_organizations",
+        "industries",
+        "measured_outcomes",
+        "decision_questions",
+        "gold",
+        "silver",
+        "bronze",
+        "last_published_at",
+        "engine_version",
+    ]:
+        assert key in m
+    assert m["decision_questions"] == 8
 
 
 def test_session_restores_complete_state(monkeypatch):

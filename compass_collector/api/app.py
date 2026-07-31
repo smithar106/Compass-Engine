@@ -55,6 +55,8 @@ def _compute_metadata() -> dict:
             passages_by_id.setdefault(p.intervention_id, []).append(p)
 
         gold = silver = bronze = 0
+        unique_orgs: set = set()
+        industries: set = set()
         for rec in records:
             tier = classify_evidence_tier(rec, metrics_by_id.get(rec.id, []), passages_by_id.get(rec.id, []))
             if tier == "gold":
@@ -63,6 +65,18 @@ def _compute_metadata() -> dict:
                 silver += 1
             elif tier == "bronze":
                 bronze += 1
+            if rec.organization_name:
+                unique_orgs.add(rec.organization_name)
+            for ind in rec.organization_industry or []:
+                if ind:
+                    industries.add(str(ind).lower())
+
+        # Measured outcomes = quantified metric records (percentage or absolute change).
+        measured_outcomes = (
+            session.query(MetricRecord)
+            .filter((MetricRecord.percentage_change.isnot(None)) | (MetricRecord.absolute_change.isnot(None)))
+            .count()
+        )
 
         last_published_at = ""
         if db_path.exists():
@@ -72,6 +86,10 @@ def _compute_metadata() -> dict:
         return {
             "dataset_version": "collector_v3",
             "published_records": len(records),
+            "unique_organizations": len(unique_orgs),
+            "industries": len(industries),
+            "measured_outcomes": measured_outcomes,
+            "decision_questions": 8,
             "gold": gold,
             "silver": silver,
             "bronze": bronze,

@@ -151,8 +151,16 @@ def main():
     init_db()
 
     session = get_session()
+    # Only select records that have documents with text
+    from sqlalchemy import text as sa_text
+    doc_ids_with_text = set(
+        row[0] for row in session.execute(
+            sa_text("SELECT id FROM documents WHERE cleaned_text IS NOT NULL AND cleaned_text != ''")
+        ).fetchall()
+    )
     query = session.query(InterventionRecord).filter(
         InterventionRecord.implementation_provenance == "vendor_documented",
+        InterventionRecord.document_id.in_(doc_ids_with_text) if doc_ids_with_text else False,
     ).filter(
         (InterventionRecord.implementation_field_provenance == None) |
         (InterventionRecord.implementation_field_provenance == "[]")
