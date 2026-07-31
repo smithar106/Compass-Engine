@@ -1,12 +1,15 @@
-"""COO Decision Defense — the product benchmark.
+"""Decision Defensibility — the internal north star.
 
-For any recommendation, produces traceable answers to the 8 questions
-a skeptical COO would ask. Every answer maps to live graph data or
-is explicitly labeled as synthetic.
+For any recommendation, produces a DecisionPackage: a traceable,
+defensible answer to the 8 questions any executive would ask before
+committing organizational resources.
+
+Every answer maps to live graph data or is explicitly labeled.
+Defensibility is measured as a checklist, not a single score.
 
 Usage:
-  from compass_collector.analysis.coo_defense import build_coo_defense
-  defense = build_coo_defense(query, evidence_package, confidence)
+  from compass_collector.analysis.decision_defensibility import build_decision_package
+  package = build_decision_package(query, evidence_package, confidence)
 """
 
 from dataclasses import dataclass, field
@@ -22,7 +25,7 @@ class AnswerSource(str, Enum):
 
 
 @dataclass
-class COOAnswer:
+class DefensibilityAnswer:
     question: str
     short_answer: str
     detailed_answer: str
@@ -34,23 +37,23 @@ class COOAnswer:
 
 
 @dataclass
-class COODefense:
+class DefensibilityResult:
     query: str
     problem: str
-    answers: list[COOAnswer]
+    answers: list[DefensibilityAnswer]
     overall_assessment: str
     can_defend: bool
     gaps: list[str]
     summary: str
 
 
-def build_coo_defense(
+def build_defensibility(
     query_workflow: str,
     query_function: str,
     evidence_package: dict,
     confidence_score: float,
     confidence_label: str,
-) -> COODefense:
+) -> DefensibilityResult:
     """Build a COO-ready defense for a recommendation.
 
     Returns traceable answers to all 8 COO questions with source mapping.
@@ -99,7 +102,7 @@ def build_coo_defense(
     can_defend = len(gaps) <= 2 and confidence_score >= 40
     overall = _build_overall(gaps, can_defend, confidence_label)
 
-    return COODefense(
+    return DefensibilityResult(
         query=query_workflow,
         problem=query_function,
         answers=answers,
@@ -110,7 +113,7 @@ def build_coo_defense(
     )
 
 
-def _q1_problem_evidence(problem_items: list, all_items: list, query: str) -> COOAnswer:
+def _q1_problem_evidence(problem_items: list, all_items: list, query: str) -> DefensibilityAnswer:
     orgs = list(set(i.get("organization", "?") for i in problem_items))[:5]
     industries = set()
     for i in all_items:
@@ -122,7 +125,7 @@ def _q1_problem_evidence(problem_items: list, all_items: list, query: str) -> CO
     if problem_items:
         detail = f"{len(problem_items)} organizations facing this problem across {len(industries)} industries including {', '.join(industries[:5])}. "
         detail += f"Specific examples: {', '.join(orgs[:5])}."
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="Why this problem?",
             short_answer=f"{len(all_items)} organizations documented this problem across {len(industries)} industries",
             detailed_answer=detail,
@@ -135,7 +138,7 @@ def _q1_problem_evidence(problem_items: list, all_items: list, query: str) -> CO
     return _unavailable("Why this problem?", f"No direct problem-fit records for '{query}'")
 
 
-def _q2_intervention_evidence(intervention_items: list, function: str) -> COOAnswer:
+def _q2_intervention_evidence(intervention_items: list, function: str) -> DefensibilityAnswer:
     families = set()
     for i in intervention_items:
         f = i.get("intervention_families", [])
@@ -144,7 +147,7 @@ def _q2_intervention_evidence(intervention_items: list, function: str) -> COOAns
     families = sorted(families)[:10]
 
     if intervention_items:
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="Why this intervention?",
             short_answer=f"{len(intervention_items)} implementations using {len(families)} approach types",
             detailed_answer=f"Evidence supports {', '.join(families[:5])} approaches for {function} problems. "
@@ -158,7 +161,7 @@ def _q2_intervention_evidence(intervention_items: list, function: str) -> COOAns
     return _unavailable("Why this intervention?", "No intervention evidence found")
 
 
-def _q3_comparable_orgs(all_items: list) -> COOAnswer:
+def _q3_comparable_orgs(all_items: list) -> DefensibilityAnswer:
     orgs = list(set(i.get("organization", "") for i in all_items if i.get("organization")))[:10]
     industries = set()
     for i in all_items:
@@ -168,7 +171,7 @@ def _q3_comparable_orgs(all_items: list) -> COOAnswer:
 
     count = len(orgs)
     if count >= 5:
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="Who else solved it?",
             short_answer=f"{count} organizations, including {orgs[0]}, {orgs[1]}, {orgs[2]}",
             detailed_answer=f"{count} organizations across {len(industries)} industries solved similar problems. "
@@ -180,7 +183,7 @@ def _q3_comparable_orgs(all_items: list) -> COOAnswer:
             confidence_level="high",
         )
     elif count >= 1:
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="Who else solved it?",
             short_answer=f"{count} organizations, including {orgs[0]}",
             detailed_answer=f"Limited evidence: {count} organizations found. More data needed for robust comparison.",
@@ -193,7 +196,7 @@ def _q3_comparable_orgs(all_items: list) -> COOAnswer:
     return _unavailable("Who else solved it?", "No organizations found")
 
 
-def _q4_implementation_detail(impl_items: list, all_items: list) -> COOAnswer:
+def _q4_implementation_detail(impl_items: list, all_items: list) -> DefensibilityAnswer:
     partners = set()
     patterns = set()
     sponsors = set()
@@ -218,7 +221,7 @@ def _q4_implementation_detail(impl_items: list, all_items: list) -> COOAnswer:
             detail += f"Partners used: {', '.join(sorted(partners)[:5])}. "
         if sponsors:
             detail += f"Typical executive sponsors: {', '.join(sorted(sponsors)[:5])}."
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="How did they implement it?",
             short_answer=f"{impl_rich} records with implementation detail — {len(patterns)} patterns, {len(partners)} partners identified",
             detailed_answer=detail,
@@ -228,7 +231,7 @@ def _q4_implementation_detail(impl_items: list, all_items: list) -> COOAnswer:
             source_description="Live graph implementation detail fields",
             confidence_level="high",
         )
-    return COOAnswer(
+    return DefensibilityAnswer(
         question="How did they implement it?",
         short_answer="Insufficient implementation detail in graph",
         detailed_answer="The evidence graph contains implementation records but not enough detail on rollout strategy, partners, or governance. This is a known graph coverage gap.",
@@ -240,7 +243,7 @@ def _q4_implementation_detail(impl_items: list, all_items: list) -> COOAnswer:
     )
 
 
-def _q5_outcome_evidence(outcome_items: list) -> COOAnswer:
+def _q5_outcome_evidence(outcome_items: list) -> DefensibilityAnswer:
     outcomes = []
     for i in outcome_items:
         summaries = i.get("outcome_summaries", [])
@@ -249,7 +252,7 @@ def _q5_outcome_evidence(outcome_items: list) -> COOAnswer:
     cost = sum(i.get("cost_savings", 0) or 0 for i in outcome_items)
 
     if outcomes:
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="What outcomes did they achieve?",
             short_answer=f"{len(outcome_items)} organizations with measured outcomes",
             detailed_answer=f"Measured outcomes include: {'; '.join(outcomes[:5])}. "
@@ -263,7 +266,7 @@ def _q5_outcome_evidence(outcome_items: list) -> COOAnswer:
     return _unavailable("What outcomes did they achieve?", "No measured outcomes found")
 
 
-def _q6_risk_evidence(risk_items: list, all_items: list) -> COOAnswer:
+def _q6_risk_evidence(risk_items: list, all_items: list) -> DefensibilityAnswer:
     risks = []
     for i in risk_items:
         negatives = i.get("negatives", [])
@@ -279,7 +282,7 @@ def _q6_risk_evidence(risk_items: list, all_items: list) -> COOAnswer:
         detail = (f"{len(risks)} risk signals identified. " if risks else "")
         if failed > 0:
             detail += f"{failed} implementations failed or were abandoned."
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="What risks should we expect?",
             short_answer=f"{len(risks)} risk signals, {failed} failed implementations",
             detailed_answer=detail + (" Risk signals: " + "; ".join(risks[:5]) if risks else ""),
@@ -289,7 +292,7 @@ def _q6_risk_evidence(risk_items: list, all_items: list) -> COOAnswer:
             source_description="Live graph negative evidence and lessons learned",
             confidence_level="high" if risks else ("medium" if failed > 0 else "unavailable"),
         )
-    return COOAnswer(
+    return DefensibilityAnswer(
         question="What risks should we expect?",
         short_answer="No risk evidence in graph",
         detailed_answer="The evidence graph does not contain risk, failure, or cautionary evidence. This is an important gap — every recommendation should include what could go wrong.",
@@ -301,7 +304,7 @@ def _q6_risk_evidence(risk_items: list, all_items: list) -> COOAnswer:
     )
 
 
-def _q7_measurement_framework(outcome_items: list) -> COOAnswer:
+def _q7_measurement_framework(outcome_items: list) -> DefensibilityAnswer:
     metrics = set()
     for i in outcome_items:
         summaries = i.get("outcome_summaries", [])
@@ -309,7 +312,7 @@ def _q7_measurement_framework(outcome_items: list) -> COOAnswer:
             metrics.add(s.split(":")[0].strip() if ":" in s else s[:50])
 
     if metrics:
-        return COOAnswer(
+        return DefensibilityAnswer(
             question="How should we measure success?",
             short_answer=f"{len(metrics)} success metrics identified from comparable implementations",
             detailed_answer=f"Based on comparable implementations, track: {', '.join(sorted(metrics)[:8])}. "
@@ -320,7 +323,7 @@ def _q7_measurement_framework(outcome_items: list) -> COOAnswer:
             source_description=f"Computed from {len(outcome_items)} outcome records",
             confidence_level="medium",
         )
-    return COOAnswer(
+    return DefensibilityAnswer(
         question="How should we measure success?",
         short_answer="Insufficient outcome data to recommend specific metrics",
         detailed_answer="Track standard operational KPIs: processing time, cost per unit, error rate, throughput, user satisfaction. Establish baseline before implementation.",
@@ -332,7 +335,7 @@ def _q7_measurement_framework(outcome_items: list) -> COOAnswer:
     )
 
 
-def _q8_sensitivity(function: str, package: dict, confidence: float) -> COOAnswer:
+def _q8_sensitivity(function: str, package: dict, confidence: float) -> DefensibilityAnswer:
     tier = package.get("tier_breakdown", {})
     gold = sum(tier.get(r, {}).get("gold", 0) for r in tier)
     silver = sum(tier.get(r, {}).get("silver", 0) for r in tier)
@@ -349,7 +352,7 @@ def _q8_sensitivity(function: str, package: dict, confidence: float) -> COOAnswe
         changes.append("Substantially more evidence across all categories")
 
     detail = "This recommendation would change (improve or reverse) if: " + "; ".join(changes) if changes else "Current evidence is sufficient for a stable recommendation."
-    return COOAnswer(
+    return DefensibilityAnswer(
         question="What would change this recommendation?",
         short_answer=f"Confidence is {confidence}/100. {'Additional evidence needed.' if changes else 'Stable.'}",
         detailed_answer=detail,
@@ -361,8 +364,8 @@ def _q8_sensitivity(function: str, package: dict, confidence: float) -> COOAnswe
     )
 
 
-def _unavailable(question: str, reason: str) -> COOAnswer:
-    return COOAnswer(
+def _unavailable(question: str, reason: str) -> DefensibilityAnswer:
+    return DefensibilityAnswer(
         question=question,
         short_answer="Insufficient evidence",
         detailed_answer=reason,
@@ -374,7 +377,7 @@ def _unavailable(question: str, reason: str) -> COOAnswer:
     )
 
 
-def _identify_gaps(answers: list[COOAnswer], package: dict, confidence: float) -> list[str]:
+def _identify_gaps(answers: list[DefensibilityAnswer], package: dict, confidence: float) -> list[str]:
     gaps = []
     for a in answers:
         if a.source == AnswerSource.UNAVAILABLE:
@@ -402,7 +405,7 @@ def _build_overall(gaps: list[str], can_defend: bool, label: str) -> str:
     return f"Recommendation {label} — {len(gaps)} gaps prevent full defense. See gaps list."
 
 
-def _build_summary(answers: list[COOAnswer], confidence: float, can_defend: bool, gaps: list[str]) -> str:
+def _build_summary(answers: list[DefensibilityAnswer], confidence: float, can_defend: bool, gaps: list[str]) -> str:
     sources = {}
     for a in answers:
         sources[a.source] = sources.get(a.source, 0) + 1
