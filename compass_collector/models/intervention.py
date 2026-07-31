@@ -86,6 +86,16 @@ class InterventionRecord(Base):
     rollout_strategy = Column(Text, default="")
     governance_model = Column(Text, default="")
 
+    # Implementation Intelligence fields — how the implementation actually happened
+    executive_sponsor = Column(String, nullable=True)
+    pilot_structure = Column(Text, default="")
+    training_approach = Column(Text, default="")
+    adoption_approach = Column(Text, default="")
+    implementation_team_structure = Column(Text, default="")
+    budget_range = Column(String, nullable=True)
+    key_decision_makers = Column(JSON, default=list)
+    success_criteria = Column(JSON, default=list)
+
 
 class MetricRecord(Base):
     __tablename__ = "metric_records"

@@ -136,6 +136,14 @@ def save_extraction(doc, parsed: dict) -> bool:
             change_management=str(parsed.get("change_management", ""))[:2000],
             rollout_strategy=str(parsed.get("rollout_strategy", ""))[:2000],
             governance_model=str(parsed.get("governance_model", ""))[:1000],
+            executive_sponsor=str(parsed.get("executive_sponsor", ""))[:200],
+            pilot_structure=str(parsed.get("pilot_structure", ""))[:2000],
+            training_approach=str(parsed.get("training_approach", ""))[:2000],
+            adoption_approach=str(parsed.get("adoption_approach", ""))[:2000],
+            implementation_team_structure=str(parsed.get("implementation_team_structure", ""))[:2000],
+            budget_range=str(parsed.get("budget_range", ""))[:100],
+            key_decision_makers=parsed.get("key_decision_makers") or [],
+            success_criteria=parsed.get("success_criteria") or [],
         )
         session.add(rec)
         for m in parsed.get("outcomes") or []:

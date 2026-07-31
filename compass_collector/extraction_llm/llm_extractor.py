@@ -62,6 +62,14 @@ OUTPUT JSON:
   "change_management": "description of the change management approach: training, communication, stakeholder buy-in, resistance handling, culture change",
   "rollout_strategy": "step-by-step description of how the implementation was rolled out: phases, timelines, teams, geographic/org sequencing",
   "governance_model": "governance structure: steering committee, PMO, executive sponsor, cross-functional governance, vendor-led, internal COE, etc.",
+  "executive_sponsor": "name or title of the executive sponsor who championed this implementation (e.g. 'CIO', 'VP of Operations', 'CFO')",
+  "pilot_structure": "description of the pilot: scope, duration, team size, success criteria, whether it was a proof-of-concept or formal pilot",
+  "training_approach": "how users were trained: workshops, self-paced, train-the-trainer, vendor-led, embedded coaches, etc.",
+  "adoption_approach": "how adoption was driven: incentives, gamification, executive mandate, phased rollout, power users/champions",
+  "implementation_team_structure": "composition of implementation team: internal FTEs, contractor mix, dedicated vs part-time, cross-functional vs siloed",
+  "budget_range": "approximate budget if mentioned (e.g. '$500K-$1M', '$2M+', '<$100K')",
+  "key_decision_makers": ["CIO", "CFO", "VP Operations", ...] — roles of key decision makers involved",
+  "success_criteria": ["reduced processing time by 50%", "ROI > 200%", "user adoption > 80%", ...] — what defined success for this implementation",
   "outcomes": [
     {
       "metric_name": "specific metric name",

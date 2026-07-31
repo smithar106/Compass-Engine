@@ -13,11 +13,12 @@ from compass_collector.models.document import Document
 
 
 SIMILARITY_WEIGHTS = {
-    "workflow": 0.40,
-    "company_size": 0.20,
-    "industry": 0.15,
+    "problem_statement": 0.35,
+    "workflow": 0.25,
     "intervention": 0.15,
-    "outcome": 0.10,
+    "industry": 0.10,
+    "company_size": 0.10,
+    "outcome": 0.05,
 }
 
 
@@ -138,6 +139,41 @@ def _band_to_range(band: str) -> tuple[Optional[int], Optional[int]]:
         "10000+": (10000, None),
     }
     return mapping.get(band, (None, None))
+
+
+def score_problem_similarity(query_workflow: str, record: InterventionRecord) -> float:
+    """Score problem statement overlap — how similar is the described problem?"""
+    if not query_workflow:
+        return 0.0
+    q = set(query_workflow.lower().split())
+    # Build document from record's problem fields
+    rec_parts = []
+    if record.problem_statement:
+        rec_parts.append(record.problem_statement.lower())
+    if record.problem_baseline_description:
+        rec_parts.append(record.problem_baseline_description.lower())
+    if record.intervention_title:
+        rec_parts.append(record.intervention_title.lower())
+    if record.intervention_description:
+        rec_parts.append(record.intervention_description.lower())
+    rec_text = " ".join(rec_parts)
+    rec_words = set(rec_text.split())
+    if not rec_words:
+        return 0.0
+    overlap = q & rec_words
+    # Jaccard with bonus for multi-word phrases
+    jaccard = len(overlap) / max(len(q), len(rec_words))
+    # Bonus for exact phrase matches (2-word and 3-word phrases)
+    q_phrases = set()
+    q_list = query_workflow.lower().split()
+    for i in range(len(q_list)):
+        if i + 1 < len(q_list):
+            q_phrases.add(f"{q_list[i]} {q_list[i+1]}")
+        if i + 2 < len(q_list):
+            q_phrases.add(f"{q_list[i]} {q_list[i+1]} {q_list[i+2]}")
+    phrase_matches = sum(1 for p in q_phrases if p in rec_text)
+    phrase_bonus = min(0.3, phrase_matches * 0.1)
+    return min(1.0, jaccard * 1.5 + phrase_bonus)
 
 
 def score_workflow_similarity(query_workflow: str, record_workflow: str) -> float:
@@ -287,18 +323,20 @@ def compute_similarity(query: ImplementationQuery, record: InterventionRecord, m
     comps = _get_components(record)
     record_workflow = comps.get("workflow") or ""
 
+    ps_score = score_problem_similarity(query.workflow, record) * SIMILARITY_WEIGHTS["problem_statement"]
     wf_score = score_workflow_similarity(query.workflow, record_workflow) * SIMILARITY_WEIGHTS["workflow"]
     cs_score = score_company_similarity(query, record) * SIMILARITY_WEIGHTS["company_size"]
     ind_score = score_industry_similarity(query, record) * SIMILARITY_WEIGHTS["industry"]
     inv_score = score_intervention_similarity(query, record) * SIMILARITY_WEIGHTS["intervention"]
     out_score = score_outcome_similarity(query, record, metrics) * SIMILARITY_WEIGHTS["outcome"]
 
-    total = wf_score + cs_score + ind_score + inv_score + out_score
+    total = ps_score + wf_score + cs_score + ind_score + inv_score + out_score
 
     return {
         "total": round(total, 3),
         "max_possible": sum(SIMILARITY_WEIGHTS.values()),
         "components": {
+            "problem": {"raw": round(ps_score / SIMILARITY_WEIGHTS["problem_statement"], 2) if SIMILARITY_WEIGHTS["problem_statement"] else 0, "weighted": round(ps_score, 3)},
             "workflow": {"raw": round(wf_score / SIMILARITY_WEIGHTS["workflow"], 2) if SIMILARITY_WEIGHTS["workflow"] else 0, "weighted": round(wf_score, 3)},
             "company_size": {"raw": round(cs_score / SIMILARITY_WEIGHTS["company_size"], 2) if SIMILARITY_WEIGHTS["company_size"] else 0, "weighted": round(cs_score, 3)},
             "industry": {"raw": round(ind_score / SIMILARITY_WEIGHTS["industry"], 2) if SIMILARITY_WEIGHTS["industry"] else 0, "weighted": round(ind_score, 3)},

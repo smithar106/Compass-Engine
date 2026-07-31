@@ -53,6 +53,14 @@ For EACH implementation, extract:
   "change_management": "",
   "rollout_strategy": "",
   "governance_model": "",
+  "executive_sponsor": "",
+  "pilot_structure": "",
+  "training_approach": "",
+  "adoption_approach": "",
+  "implementation_team_structure": "",
+  "budget_range": "",
+  "key_decision_makers": [],
+  "success_criteria": [],
   "outcomes": [
     {{
       "metric_name": "",
@@ -261,6 +269,14 @@ def main():
                         change_management=str(p.get("change_management", ""))[:2000],
                         rollout_strategy=str(p.get("rollout_strategy", ""))[:2000],
                         governance_model=str(p.get("governance_model", ""))[:1000],
+                        executive_sponsor=str(p.get("executive_sponsor", ""))[:200],
+                        pilot_structure=str(p.get("pilot_structure", ""))[:2000],
+                        training_approach=str(p.get("training_approach", ""))[:2000],
+                        adoption_approach=str(p.get("adoption_approach", ""))[:2000],
+                        implementation_team_structure=str(p.get("implementation_team_structure", ""))[:2000],
+                        budget_range=str(p.get("budget_range", ""))[:100],
+                        key_decision_makers=p.get("key_decision_makers") or [],
+                        success_criteria=p.get("success_criteria") or [],
                     )
                     session.add(rec)
                     for m in p.get("outcomes") or []:
