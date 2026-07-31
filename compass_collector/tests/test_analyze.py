@@ -9,6 +9,11 @@ from compass_collector.models.analysis_session import AnalysisSession  # noqa: E
 from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord  # noqa: E402,F401
 from compass_collector.models.document import Document  # noqa: E402,F401
 from compass_collector.models.source import SourceRegistry  # noqa: E402,F401
+from compass_collector.models.walkthrough import (  # noqa: E402,F401
+    ImplementationPlan,
+    ImplementationRequest,
+    SavedDecision,
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -245,6 +250,52 @@ def test_answers_produce_materially_different_context_a_vs_b(monkeypatch):
     assert ra["answers"]["judgment_requirement"] != rb["answers"]["judgment_requirement"]
     assert len(ra["retrieval_snapshots"]) >= 2
     assert ra["status"] == "decision_ready"
+
+
+def test_walkthrough_implement_request_invite(monkeypatch):
+    from compass_collector.api import walkthrough_router as wr
+
+    def fake(norm, ans):
+        return canned_decision(confidence="moderate", tier="silver", comparables=3)
+
+    monkeypatch.setattr(ar, "_run_engine", fake)
+    created = ar.create_analysis(ar.AnalyzeCreateRequest(problem_text="Manual invoice processing is expensive"))
+    aid = created["analysis_id"]
+
+    # Implement This Plan → six ordered stages
+    plan = wr.create_implementation(aid, wr.ImplementRequest(path="partner", partner_id="demo-northstar"))
+    assert plan["selected_path"] == "partner"
+    assert len(plan["stages"]) == 6
+    assert [s["index"] for s in plan["stages"]] == [1, 2, 3, 4, 5, 6]
+    assert plan["partner_status"] == "not_requested"
+
+    # Partner request → record + notification attempt + invite
+    req = wr.request_partner(
+        plan["implementation_id"],
+        wr.PartnerRequestModel(
+            partner_id="demo-northstar",
+            contact_name="Jane",
+            contact_email="jane@acme.com",
+            organization="Acme",
+            requested_timeline="8 weeks",
+            notes="",
+            consent=True,
+        ),
+    )
+    assert req["status"] in ("submitted", "notification_sent")
+    assert req["notification"]["partner"]["status"] in ("dev_fallback", "sent", "failed")
+    assert req["notification"]["user"]["status"] in ("dev_fallback", "sent", "failed")
+
+    # Partner secure invite view + accept
+    invite = wr.partner_invite_view(plan["implementation_id"], plan["invite_token"])
+    assert invite["partner_name"] == "Northstar Automation"
+    assert len(invite["stages"]) == 6
+    accepted = wr.partner_invite_accept(plan["implementation_id"], plan["invite_token"])
+    assert accepted["partner_status"] == "accepted"
+
+    # Save decision → permanent link
+    saved = wr.save_decision(aid, wr.SaveDecisionModel(email=""))
+    assert saved["permalink"].endswith(aid)
 
 
 def test_metadata_schema():

@@ -22,10 +22,16 @@ from compass_collector.api.report import generate_report_html, generate_report_p
 from compass_collector.database import get_session, init_db
 from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord
 from compass_collector.models.analysis_session import AnalysisSession  # noqa: F401 — registers the table
+from compass_collector.models.walkthrough import (  # noqa: F401 — registers the tables
+    ImplementationPlan,
+    ImplementationRequest,
+    SavedDecision,
+)
 from compass_collector.api.evidence_tier import classify_evidence_tier
 from compass_collector.config.settings import DATA_DIR, DATABASE_URL
 from compass_collector.implementation.router import router as implementation_router
 from compass_collector.api.analyze_router import router as analyze_router
+from compass_collector.api.walkthrough_router import router as walkthrough_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compass-engine")
@@ -38,6 +44,7 @@ app = FastAPI(
 
 app.include_router(implementation_router)
 app.include_router(analyze_router)
+app.include_router(walkthrough_router)
 
 _metadata_cache = None
 
