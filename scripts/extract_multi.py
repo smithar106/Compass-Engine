@@ -159,7 +159,7 @@ def call_multi(text: str, max_n: int = 10) -> list[dict]:
     return data.get("extractions", [])
 
 
-def classify(prov: str, outcomes: list, ob: dict, detail_score: int) -> str:
+def classify(prov: str, outcomes: list, ob: dict, detail_score: int, partner: list = None, lessons: list = None, rollout: str = None) -> str:
     gold_provs = {"government_audited", "peer_reviewed", "financial_disclosure"}
     has_outcomes = bool(outcomes) or bool(ob.get("baseline_metric"))
     if prov in gold_provs and has_outcomes:
@@ -168,6 +168,11 @@ def classify(prov: str, outcomes: list, ob: dict, detail_score: int) -> str:
         return "silver"
     if prov in ("customer_documented", "independently_validated"):
         return "silver" if has_outcomes else ("silver" if detail_score and detail_score >= 6 else "bronze")
+    if prov == "vendor_documented":
+        ds = detail_score or 0
+        if ds >= 7 or (ds >= 5 and (bool(partner) or bool(lessons) or bool(rollout))):
+            return "silver"
+        return "bronze"
     return "bronze"
 
 
@@ -219,7 +224,9 @@ def main():
                 eq = p.get("evidence_quality", {})
                 ob = p.get("outcome_block", {})
                 prov = eq.get("implementation_provenance")
-                tier = classify(prov, p.get("outcomes", []), ob, eq.get("implementation_detail_score"))
+                tier = classify(prov, p.get("outcomes", []), ob, eq.get("implementation_detail_score"),
+                                p.get("implementation_partner"), p.get("lessons_learned"),
+                                p.get("rollout_strategy"))
                 rid = str(uuid.uuid4())
                 session = get_session()
                 try:

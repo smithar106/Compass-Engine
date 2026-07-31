@@ -193,15 +193,26 @@ def classify(rec, metrics_count: int = 0) -> str:
         return "silver" if has_outcomes else "bronze"
 
     # Silver: named org + deployed intervention + described outcomes,
-    # source is customer/independent/financial disclosure with detail
+    # source is customer/independent/financial disclosure with detail.
+    # Also: vendor customer stories with rich implementation detail
+    # (implementation partner, rollout strategy, lessons learned) qualify
+    # as Silver because they carry the "connective tissue" of the graph.
     if prov in ("customer_documented", "independently_validated"):
         if has_outcomes:
             return "silver"
         if rec.implementation_detail_score and rec.implementation_detail_score >= 6:
             return "silver"
         return "bronze"
+    if prov == "vendor_documented":
+        detail_score = rec.implementation_detail_score or 0
+        has_partner = bool(rec.implementation_partner)
+        has_lessons = bool(rec.lessons_learned)
+        has_rollout = bool(rec.rollout_strategy)
+        if detail_score >= 7 or (detail_score >= 5 and (has_partner or has_lessons or has_rollout)):
+            return "silver"
+        return "bronze"
 
-    # Bronze: vendor-documented or unknown
+    # Bronze: unknown provenance
     return "bronze"
 
 
