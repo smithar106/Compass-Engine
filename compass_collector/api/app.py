@@ -19,7 +19,7 @@ from compass_collector.api.storage import (
     load_score_breakdown,
 )
 from compass_collector.api.report import generate_report_html, generate_report_pdf
-from compass_collector.database import get_session
+from compass_collector.database import get_session, init_db
 from compass_collector.models.intervention import InterventionRecord
 from compass_collector.config.settings import DATA_DIR, DATABASE_URL
 from compass_collector.implementation.router import router as implementation_router
@@ -70,6 +70,7 @@ def startup_log():
 
     session = None
     try:
+        init_db()
         session = get_session()
         total = session.query(InterventionRecord).count()
         if total == 0:
