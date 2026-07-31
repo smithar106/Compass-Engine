@@ -78,6 +78,14 @@ class InterventionRecord(Base):
     source_type = Column(String, nullable=True)
     evidence_level = Column(String, nullable=True)
 
+    # Implementation decision-support fields
+    implementation_partner = Column(JSON, default=list)
+    implementation_pattern = Column(JSON, default=list)
+    lessons_learned = Column(JSON, default=list)
+    change_management = Column(Text, default="")
+    rollout_strategy = Column(Text, default="")
+    governance_model = Column(Text, default="")
+
 
 class MetricRecord(Base):
     __tablename__ = "metric_records"

@@ -32,14 +32,44 @@ API = "https://api.deepseek.com/chat/completions"
 MODEL = "deepseek-chat"
 
 
+def select_text_window(text: str) -> str:
+    """Select the best text window for extraction, skipping boilerplate."""
+    if not text:
+        return ""
+    tl = text.lower()
+    # SEC filing: target Item 7 (MD&A) for financial outcomes
+    for pattern in ["Item 7.", "ITEM 7."]:
+        idx = text.find(pattern)
+        if idx >= 5000 and idx < len(text) * 0.5:
+            return text[idx: idx + 16000]
+    # SEC filing: Item 1 Business  
+    for pattern in ["Item 1.", "ITEM 1."]:
+        idx = text.find(pattern)
+        if idx >= 2000 and idx < len(text) * 0.3:
+            return text[idx: idx + 16000]
+    # Short doc: use from start
+    if len(text) <= 20000:
+        return text[:16000]
+    # Long doc: skip first 2K (covers/ToC), search for substantive content
+    # Look for AI/technology discussion start
+    for kw in ["artificial intelligence", "machine learning"]:
+        idx = tl.find(kw)
+        if idx > 2000 and idx < len(text) * 0.5:
+            return text[max(0, idx - 500): idx + 15500]
+    return text[2000: 18000]
+
+
 def call_llm(text: str) -> dict:
     """Call DeepSeek with the full provenance prompt."""
     import urllib.request
+    window = select_text_window(text)
+    if len(window) < 300:
+        window = text[:16000]
     body = json.dumps({
         "model": MODEL,
-        "messages": [{"role": "user", "content": LLM_EXTRACTION_PROMPT + "\n\n" + text[:8000]}],
+        "messages": [{"role": "user", "content": LLM_EXTRACTION_PROMPT + "\n\n" + window[:12000]}],
         "temperature": 0.0,
-        "max_tokens": 6000,
+        "max_tokens": 8000,
     }).encode()
     req = urllib.request.Request(
         API, data=body,
@@ -99,6 +129,13 @@ def save_extraction(doc, parsed: dict) -> bool:
             outcome_block=ob,
             source_type=ob.get("source_type"),
             evidence_level=ob.get("evidence_level"),
+            # Implementation decision-support fields
+            implementation_partner=parsed.get("implementation_partner") or [],
+            implementation_pattern=parsed.get("implementation_pattern") or [],
+            lessons_learned=parsed.get("lessons_learned") or [],
+            change_management=str(parsed.get("change_management", ""))[:2000],
+            rollout_strategy=str(parsed.get("rollout_strategy", ""))[:2000],
+            governance_model=str(parsed.get("governance_model", ""))[:1000],
         )
         session.add(rec)
         for m in parsed.get("outcomes") or []:
@@ -126,23 +163,38 @@ def save_extraction(doc, parsed: dict) -> bool:
 
 
 def classify(rec, metrics_count: int = 0) -> str:
-    """Provenance-aware classification → gold/silver/bronze."""
+    """Provenance-aware classification → gold/silver/bronze.
+
+    GOLD = high-confidence causal implementation evidence, per the product
+    contract. This is NOT about who wrote it — it's whether the evidence
+    supports a credible causal claim:
+      * government audit with measured outcomes
+      * public company SEC filing discussing implementation results with
+        quantified before/after
+      * peer-reviewed implementation study
+      * randomized/quasi-experimental evaluation
+      * independent evaluator with measured outcomes
+    """
     prov = rec.implementation_provenance
-    gold_provenances = {"government_audited", "peer_reviewed"}
+    gold_provenances = {"government_audited", "peer_reviewed", "financial_disclosure"}
     has_metrics = metrics_count > 0 or bool(rec.outcome_block)
     has_outcomes = has_metrics
 
     if prov in gold_provenances and has_outcomes:
         ev = rec.evidence_level
-        if ev in ("causal", "strong_correlation", "government_audited_outcomes") or \
-           (rec.has_baseline and rec.has_post_measurement):
+        ob = rec.outcome_block or {}
+        # Gold requires measured baseline AND post (or explicit causal claim)
+        has_baseline_post = bool(rec.has_baseline and rec.has_post_measurement)
+        strong_signal = ev in ("causal", "strong_correlation", "government_audited_outcomes")
+        high_conf_ob = ob.get("confidence") == "high"
+        if has_baseline_post or strong_signal or high_conf_ob:
             return "gold"
     if prov in gold_provenances:
         return "silver" if has_outcomes else "bronze"
 
     # Silver: named org + deployed intervention + described outcomes,
     # source is customer/independent/financial disclosure with detail
-    if prov in ("customer_documented", "independently_validated", "financial_disclosure"):
+    if prov in ("customer_documented", "independently_validated"):
         if has_outcomes:
             return "silver"
         if rec.implementation_detail_score and rec.implementation_detail_score >= 6:
@@ -191,7 +243,7 @@ def main():
 
     saved = 0
     for i, d in enumerate(docs, 1):
-        text = (d.cleaned_text or "")[:8000]
+        text = d.cleaned_text or ""
         if len(text) < 300:
             continue
         try:
@@ -200,8 +252,10 @@ def main():
                 saved += 1
             if i % 20 == 0:
                 print(f"  [{i}/{len(docs)}] saved {saved}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [{i}/{len(docs)}] error: {e}")
+            time.sleep(1)
+            continue
         time.sleep(0.3)
 
     # Classify new records

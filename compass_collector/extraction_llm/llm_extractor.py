@@ -56,6 +56,12 @@ OUTPUT JSON:
   "implementation_status": "completed/in_progress/abandoned",
   "implementation_duration_value": EXACT NUMBER IF MENTIONED, else 0,
   "implementation_duration_unit": "weeks/months/years/days" if duration mentioned,
+  "implementation_partner": ["Accenture", "McKinsey", "Deloitte", ...] IF implementation partners are mentioned (consulting firms, system integrators, agencies that helped implement),
+  "implementation_pattern": ["Pilot → Department Rollout", "Internal Champion → Executive Sponsor → Cross-functional Team", "Big Bang Deployment", "Phased Migration", "Greenfield Build", "Lift and Shift", "Hybrid Cloud Migration", "Center of Excellence", ...] Choose the pattern(s) that best match the described rollout approach,
+  "lessons_learned": ["key lessons extracted from the text about what worked, what failed, what they would do differently"],
+  "change_management": "description of the change management approach: training, communication, stakeholder buy-in, resistance handling, culture change",
+  "rollout_strategy": "step-by-step description of how the implementation was rolled out: phases, timelines, teams, geographic/org sequencing",
+  "governance_model": "governance structure: steering committee, PMO, executive sponsor, cross-functional governance, vendor-led, internal COE, etc.",
   "outcomes": [
     {
       "metric_name": "specific metric name",
