@@ -20,9 +20,12 @@ from compass_collector.api.storage import (
 )
 from compass_collector.api.report import generate_report_html, generate_report_pdf
 from compass_collector.database import get_session, init_db
-from compass_collector.models.intervention import InterventionRecord
+from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord
+from compass_collector.models.analysis_session import AnalysisSession  # noqa: F401 — registers the table
+from compass_collector.api.evidence_tier import classify_evidence_tier
 from compass_collector.config.settings import DATA_DIR, DATABASE_URL
 from compass_collector.implementation.router import router as implementation_router
+from compass_collector.api.analyze_router import router as analyze_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compass-engine")
@@ -34,6 +37,57 @@ app = FastAPI(
 )
 
 app.include_router(implementation_router)
+app.include_router(analyze_router)
+
+_metadata_cache = None
+
+
+def _compute_metadata() -> dict:
+    db_path = DATA_DIR / "collector_v3.db"
+    session = get_session()
+    try:
+        records = session.query(InterventionRecord).all()
+        metrics_by_id: dict = {}
+        for m in session.query(MetricRecord).all():
+            metrics_by_id.setdefault(m.intervention_id, []).append(m)
+        passages_by_id: dict = {}
+        for p in session.query(PassageRecord).all():
+            passages_by_id.setdefault(p.intervention_id, []).append(p)
+
+        gold = silver = bronze = 0
+        for rec in records:
+            tier = classify_evidence_tier(rec, metrics_by_id.get(rec.id, []), passages_by_id.get(rec.id, []))
+            if tier == "gold":
+                gold += 1
+            elif tier == "silver":
+                silver += 1
+            elif tier == "bronze":
+                bronze += 1
+
+        last_published_at = ""
+        if db_path.exists():
+            mtime = db_path.stat().st_mtime
+            last_published_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+        return {
+            "dataset_version": "collector_v3",
+            "published_records": len(records),
+            "gold": gold,
+            "silver": silver,
+            "bronze": bronze,
+            "last_published_at": last_published_at,
+            "engine_version": "3.1.0",
+        }
+    finally:
+        session.close()
+
+
+@app.get("/api/metadata")
+def get_metadata():
+    global _metadata_cache
+    if _metadata_cache is None:
+        _metadata_cache = _compute_metadata()
+    return _metadata_cache
 
 
 @app.on_event("startup")

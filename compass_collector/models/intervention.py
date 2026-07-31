@@ -96,6 +96,15 @@ class InterventionRecord(Base):
     key_decision_makers = Column(JSON, default=list)
     success_criteria = Column(JSON, default=list)
 
+    # Per-field provenance trace — for every extracted implementation field,
+    # records: value, supporting_text, source_id, source_url, source_section,
+    # extraction_confidence, explicit_vs_inferred
+    implementation_field_provenance = Column(JSON, default=list)
+
+    # Implementation density classification
+    # rich: 4+ populated fields, usable: 2-3, thin: 0-1
+    implementation_richness = Column(String, nullable=True)
+
 
 class MetricRecord(Base):
     __tablename__ = "metric_records"
