@@ -1,39 +1,35 @@
 # Organization-Context Benchmark & Enrichment Metrics (against live production)
 
-Date: 2026-08-02 · Engine: `compass-engine-production-532b.up.railway.app` · Agent: `Compass-Evidence-Agent`
+Date: 2026-08-02 (second pass, post-DB-refresh + context-retrieval wiring) · Engine: `compass-engine-production-532b.up.railway.app` · Agent: `Compass-Evidence-Agent`
 
-## 0. Critical context — two caveats that frame every number below
+## 0. State of the production pipeline (updated)
 
-1. **The production engine evidence DB is stale.** The live DB has **153 records**
-   (the v3 curated subset), while the repo's `collector_v3.db` (git-lfs main) has
-   **1,306 records**. The engine's startup only downloads the DB when the file is
-   missing, so its Railway volume never picked up the expanded graph. The website
-   has been recommending against 153 records.
-2. **The engine still uses legacy retrieval.** `run_recommendation` →
-   `retrieve_candidates` → `compute_similarity` (legacy weights: problem 0.35,
-   workflow 0.25, industry 0.10, company_size 0.10). The new context-aware
-   ten-factor retrieval (`analysis/context_retrieval.py`) is implemented and
-   tested but **not yet wired into the live recommendation path**, so the live
-   API cannot report per-factor breakdowns yet.
+- **Production DB refreshed**: the engine's Railway volume now serves the full
+  **1,306-record** graph (was a stale 4 MB / 153-record snapshot) with the
+  canonical backfill applied (`organization_normalized`, 97.6% canonical
+  industry, 100% normalized).
+- **Context-aware retrieval is live**: `retrieve_candidates` now uses the
+  ten-factor context retrieval and `component_scoring` uses canonical industry
+  matching, so `Banking`/`FinTech`/`Financial Services` match and comparables
+  reflect organization context.
 
 ## 1. Field coverage (live enriched DB, `GET /api/evidence/coverage`)
 
 | Field | n / total | % | Note |
 |---|---|---|---|
-| organization_name | 151 / 153 | 98.7% | |
-| **raw industry values (unique)** | **130** | — | still fragmented in prod (417 across the full 1,306 DB) |
-| canonical_industry (org_normalized) | 0 / 153 | 0.0% | **backfill not applied to production DB** |
-| industry_subsector | 0 / 153 | 0.0% | backfill not applied |
-| employee_count | 2 / 153 | 1.3% | agent-enriched (was 0%) |
-| employee_band | 2 / 153 | 1.3% | agent-enriched |
-| geography | 4 / 153 | 2.6% | agent-enriched (was 0%) |
-| operational_function | 141 / 153 | 92.2% | v3 subset is densely tagged |
-| workflow | 147 / 153 | 96.1% | v3 subset |
-| **agent_enriched records** | **10** | — | published to engine over HTTP |
+| organization_name | 1,289 / 1,306 | 98.7% | |
+| **raw industry values (unique)** | **417** | — | fragmented pre-taxonomy |
+| canonical_industry (org_normalized) | 1,275 / 1,306 | 97.6% | backfill applied |
+| industry_subsector | 1,275 / 1,306 | 97.6% | backfill applied |
+| employee_count | 0 / 1,306 | 0.0% | agent will backfill going forward |
+| employee_band | 0 / 1,306 | 0.0% | |
+| geography | 0 / 1,306 | 0.0% | |
+| operational_function | 331 / 1,306 | 25.3% | |
+| workflow | 141 / 1,306 | 10.8% | |
+| **agent_enriched records** | **0** | — | the DB refresh reset prior enrichments; agent re-accumulates |
 
-**Before/after enrichment** (sparse fields): employee 0% → 1.3%, geography 0% → 2.6%
-after the agent's first ~29 attempts (10 validated). Still far below a usable
-threshold — do **not** raise sparse-factor weights yet (see §5).
+Top canonical industries: technology 223, healthcare 186, manufacturing 183,
+financial_services 169, retail_consumer 95, professional_services 68, government 64.
 
 ## 2. Retrieval changes for the same problem across four organization profiles
 
@@ -41,24 +37,22 @@ Problem: manual invoice processing (finance), same workflow + problem text.
 
 | Profile | Top category | Confidence | Comparables | Risks |
 |---|---|---|---|---|
-| No org (baseline) | Workflow_Automation | 0.60 (moderate) | Alight, Tetra Pak, Merck | Mixed outcomes; exception paths |
+| No org (baseline) | Workflow_Automation | 0.60 | Alight, Tetra Pak, Merck | Mixed outcomes; exception paths |
 | Stripe (fintech) | Workflow_Automation | 0.60 | Alight, Tetra Pak, Merck | same |
-| Walmart (retail) | **Software** | **0.62 (moderate)** | **Accent Group, Shopify, Breville** | **System integration complexity** |
-| Hospital (healthcare) | Workflow_Automation | 0.62 | **Alight, Omega Healthcare, AmerisourceBergen** | Mixed outcomes |
+| Walmart (retail) | **Software** | 0.65 | **Accent Group, American Furniture Warehouse, Shopify** | Mixed outcomes; integration complexity |
+| Hospital (healthcare) | **Software** | 0.60 | **CA Dept of Health Care Services, TELUS, AmerisourceBergen** | Mixed outcomes; integration complexity |
 
 **Company context effect (vs baseline):**
-- Stripe (fintech): top **same**, comparables **same**, risks **same**
-- Walmart (retail): top **CHANGED** (Workflow_Automation → Software), comparables **CHANGED**, risks **CHANGED**
-- Hospital (healthcare): top **same**, comparables **CHANGED**, risks **same**
+- Stripe (fintech): top **same**, comparables **same**, risks **same** — fintech
+  has thin invoice-processing evidence, so context does not override evidence
+- Walmart (retail): top **CHANGED**, comparables **CHANGED** (now retail orgs),
+  risks **CHANGED**
+- Hospital (healthcare): top **CHANGED**, comparables **CHANGED** (now healthcare
+  orgs), risks **CHANGED**
 
-So organization context materially changes evidence + ranking for some profiles
-(retail most strongly), and leaves others unchanged — consistent with the design
-intent that context *nudges* rather than dominates.
-
-**Workflow vs industry dominance:** the live engine reports legacy-similarity
-ranking (problem 0.35 + workflow 0.25 > industry 0.10 + size 0.10), so workflow
-+ problem still dominate broad industry in production. The new ten-factor
-breakdown is verified by unit tests (`test_organization.py`) but is not live.
+The canonical taxonomy + context retrieval now surface organizationally relevant
+comparables (retail → furniture/retail orgs, healthcare → health orgs) instead of
+unrelated matches.
 
 ## 3. Live enrichment metrics (agent store, via `railway ssh`)
 
@@ -75,32 +69,18 @@ breakdown is verified by unit tests (`test_organization.py`) but is not live.
 | cost per rich record | $0.00225 |
 | provenance accuracy | not measured (needs gold set) |
 | overwrite conflicts | not measured (needs pre-image tracking) |
-| benchmark impact | see `python -m compass_agent benchmark --dry-run` |
-
-Rejection rate is high (65.5%) — the LLM returns `rejected`/insufficient for a
-majority of candidate records. That is expected on this candidate set and is the
-main lever for cost efficiency.
 
 ## 4. Budget spend (live)
 
-Daily $0.02 / $0.50 (4%), total $0.02 / $3.75 (0.6%). No thresholds crossed yet;
-budget-alert structured logs (`{"event":"budget_alert",...}` at 75/90/100% of
-daily and total) are deployed and will fire as spend grows.
+Daily $0.02 / $0.50 (4%), total $0.02 / $3.75 (0.6%). Budget-alert structured
+logs (`{"event":"budget_alert",...}` at 75/90/100% of daily and total) are live.
 
-## 5. Recommendations (from benchmark evidence — no changes implemented)
+## 5. Recommendations (from benchmark evidence)
 
-1. **Refresh the production engine DB to the current 1,306-record graph** and
-   apply the canonical backfill (`organization_normalized`). Without this, every
-   coverage/retrieval number above is measured against a 153-record snapshot and
-   the 417→canonical taxonomy work is invisible to production.
-2. **Wire `analysis/context_retrieval.py` into the live recommendation path**
-   (it is tested but unused), then re-run this benchmark to expose the ten-factor
-   breakdown and verify workflow/problem dominance live.
-3. **Do not raise sparse-factor weights yet.** Employee 1.3% / geography 2.6%
-   coverage is far below a level where matching is meaningful; the coverage-aware
-   neutral-on-missing behavior should remain.
-4. **Throughput/budget:** with only 10 validated enrichments (< 50), do not
-   change documents-per-cycle, daily budget, or concurrency. Re-assess after ≥ 50
-   validated enrichments; the 65.5% rejection rate suggests candidate filtering
-   (skip records the LLM flags `rejected` before claiming) is a cheaper lever
-   than raising budget.
+1. Keep **sparse-factor weights neutral** until the agent re-accumulates employee
+   (0%) and geography (0%) coverage on the refreshed DB.
+2. **No throughput/budget change** until ≥ 50 validated enrichments; the 65.5%
+   rejection rate suggests candidate pre-filtering as the cheaper lever.
+3. Next: wire the evidence-graph organization registry tier (Priority 1 in
+   `docs/organization_resolution_plan.md`), then external/LLM fallbacks.
+
