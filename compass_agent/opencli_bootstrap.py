@@ -1,11 +1,15 @@
 """Best-effort OpenCLI bootstrap for the agent container.
 
-OpenCLI is a Node CLI. The Railway container has no Node, so we install a
-standalone Node binary + the OpenCLI npm package into ``/app/tools`` on first
-boot (persisted on the agent volume). All steps are guarded: any failure logs a
-warning and returns None, so Discovery simply falls back to the other backends.
+OpenCLI is a Node CLI. The Railway container has no Node, so on first use we
+install a standalone Node binary + the OpenCLI npm package into ``/app/tools``
+(persisted on the agent volume). The container's ``env`` cannot resolve ``node``
+from the opencli shebang, so ``ensure_opencli`` returns an invocation *prefix*
+(e.g. ``/app/tools/node/bin/node /app/tools/opencli/bin/opencli``) that the
+caller shells out to, and ``opencli_env`` supplies the PATH for child processes.
 
-No API key is required — OpenCLI's search adapters are self-contained.
+All steps are guarded: any failure logs a warning and returns '', so Discovery
+falls back to DuckDuckGo / curated seeds / Arxiv. No API key is required —
+OpenCLI's search adapters are self-contained.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ OPENCLI_PACKAGE = "@jackwener/opencli@1.8.3"
 
 TOOLS_DIR = Path(os.environ.get("AGENT_TOOLS_DIR", "/app/tools"))
 NODE_BIN = TOOLS_DIR / "node" / "bin" / "node"
-NPM_BIN = TOOLS_DIR / "node" / "bin" / "npm"
+NPM_CLI = TOOLS_DIR / "node" / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js"
 OPENCLI_BIN = TOOLS_DIR / "opencli" / "bin" / "opencli"
 
 
@@ -41,7 +45,6 @@ def _download_node() -> bool:
         log.info("Extracting Node…")
         with tarfile.open(archive, "r:xz") as tf:
             tf.extractall(TOOLS_DIR)
-        # node-…-linux-x64 → node
         extracted = TOOLS_DIR / f"node-{NODE_VERSION}-linux-x64"
         if extracted.exists() and not (TOOLS_DIR / "node").exists():
             extracted.rename(TOOLS_DIR / "node")
@@ -55,17 +58,27 @@ def _download_node() -> bool:
 def _install_opencli() -> bool:
     if OPENCLI_BIN.exists():
         return True
-    npm = NPM_BIN if NPM_BIN.exists() else shutil.which("npm")
-    if not npm:
+    if not NODE_BIN.exists() or not NPM_CLI.exists():
         return False
+    env = dict(os.environ)
+    env["PATH"] = f"{TOOLS_DIR / 'node' / 'bin'}:{env.get('PATH', '')}"
     try:
         TOOLS_DIR.mkdir(parents=True, exist_ok=True)
-        log.info("Installing OpenCLI (%s) via %s", OPENCLI_PACKAGE, npm)
+        log.info("Installing OpenCLI (%s)", OPENCLI_PACKAGE)
         result = subprocess.run(
-            [str(npm), "install", "-g", "--prefix", str(TOOLS_DIR / "opencli"), OPENCLI_PACKAGE],
+            [
+                str(NODE_BIN),
+                str(NPM_CLI),
+                "install",
+                "-g",
+                "--prefix",
+                str(TOOLS_DIR / "opencli"),
+                OPENCLI_PACKAGE,
+            ],
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=240,
+            env=env,
         )
         if result.returncode != 0:
             log.warning("OpenCLI install failed: %s", (result.stderr or result.stdout)[-400:])
@@ -77,14 +90,22 @@ def _install_opencli() -> bool:
 
 
 def ensure_opencli() -> str:
-    """Return a path to an opencli binary (system or bootstrapped), or ''."""
+    """Return an invocation *prefix* for opencli (system or bootstrapped), or ''."""
     system = shutil.which("opencli")
     if system:
         return system
     try:
         if not (_download_node() and _install_opencli()):
             return ""
-        return str(OPENCLI_BIN)
+        return f"{NODE_BIN} {OPENCLI_BIN}"
     except Exception as exc:
         log.warning("opencli bootstrap error: %s", exc)
         return ""
+
+
+def opencli_env() -> dict:
+    """Environment with the bootstrapped node bin on PATH for child processes."""
+    env = dict(os.environ)
+    if NODE_BIN.exists():
+        env["PATH"] = f"{TOOLS_DIR / 'node' / 'bin'}:{env.get('PATH', '')}"
+    return env

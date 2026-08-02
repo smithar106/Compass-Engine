@@ -124,12 +124,15 @@ class OpenCLISearch(SearchBackend):
         if not exe:
             return []
         try:
+            from compass_agent.opencli_bootstrap import opencli_env
+
             result = subprocess.run(
                 f"{exe} {query} -f json",
                 shell=True,
                 capture_output=True,
                 text=True,
                 timeout=45,
+                env=opencli_env(),
             )
             if result.returncode != 0:
                 return []
