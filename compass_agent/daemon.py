@@ -305,6 +305,9 @@ class Daemon:
             )
             return 0
 
+        processed = 0
+
+        # Enrichment: deepen existing records.
         if self.enrichment is not None:
             report = self.enrichment.run_cycle(
                 cycle=cycle,
@@ -327,49 +330,46 @@ class Daemon:
             )
             for failure in report.failures[:5]:
                 self.logger.warning("Cycle %d: %s", cycle, failure)
-            self.budget.check_alerts(logger=self.logger, notify=self.notify)
-            return report.processed
+            processed += report.processed
 
         # Evidence Operations: Inspect → Plan → Discover (budget-gated).
         if self.discovery is not None and self.collector_db and self.store:
             from compass_agent.evidence_ops import run_evidence_ops
 
-            if not self.budget.can_work():
-                self.logger.warning(
-                    "Cycle %d: budget exhausted — skipping discovery.", cycle
+            if self.budget.can_work():
+                ops = run_evidence_ops(
+                    store=self.store,
+                    collector_db=self.collector_db,
+                    discovery=self.discovery,
+                    max_sources=min(self.settings.max_docs_per_cycle, 3),
                 )
-                return 0
-            ops = run_evidence_ops(
-                store=self.store,
-                collector_db=self.collector_db,
-                discovery=self.discovery,
-                max_sources=min(self.settings.max_docs_per_cycle, 3),
-            )
-            self.budget.check_alerts(logger=self.logger, notify=self.notify)
+                processed += ops.get("discovered", 0)
+                self.logger.info(
+                    "Cycle %d: evidence-ops campaign=%s discovered=%d accepted=%d "
+                    "rejected=%d cost=$%.4f (daily $%.2f / %.2f).",
+                    cycle,
+                    ops.get("campaign"),
+                    ops.get("discovered", 0),
+                    ops.get("accepted", 0),
+                    ops.get("rejected", 0),
+                    ops.get("cost_usd", 0.0),
+                    self.budget.daily_spent,
+                    self.settings.max_daily_llm_usd,
+                )
+
+        self.budget.check_alerts(logger=self.logger, notify=self.notify)
+
+        if processed == 0 and self.enrichment is None and self.discovery is None:
             self.logger.info(
-                "Cycle %d: evidence-ops campaign=%s discovered=%d accepted=%d "
-                "rejected=%d cost=$%.4f (daily $%.2f / %.2f).",
+                "Cycle %d: budget OK (daily $%.2f / %.2f, total $%.2f / %.2f). "
+                "No pipeline configured — idle.",
                 cycle,
-                ops.get("campaign"),
-                ops.get("discovered", 0),
-                ops.get("accepted", 0),
-                ops.get("rejected", 0),
-                ops.get("cost_usd", 0.0),
                 self.budget.daily_spent,
                 self.settings.max_daily_llm_usd,
+                self.budget.total_spent,
+                self.settings.max_total_llm_usd,
             )
-            return ops.get("discovered", 0)
-
-        self.logger.info(
-            "Cycle %d: budget OK (daily $%.2f / %.2f, total $%.2f / %.2f). "
-            "No enrichment pipeline configured — idle.",
-            cycle,
-            self.budget.daily_spent,
-            self.settings.max_daily_llm_usd,
-            self.budget.total_spent,
-            self.settings.max_total_llm_usd,
-        )
-        return 0
+        return processed
 
     # -- main loop ---------------------------------------------------------
     def run(self, max_cycles: Optional[int] = None) -> int:
