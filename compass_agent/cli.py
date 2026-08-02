@@ -48,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run against the built-in gold set with a deterministic reference extractor (no LLM)",
     )
     sub.add_parser("metrics", help="Print enrichment cost/rejection/richness metrics from the agent store")
+    camp = sub.add_parser("campaign", help="Evidence Operations: inspect gaps, plan/run targeted evidence campaigns")
+    camp.add_argument("action", choices=["plan", "list", "run"], help="campaign action")
+    camp.add_argument("--sources", type=int, default=3, help="max sources to discover per run")
     return parser
 
 
@@ -123,6 +126,39 @@ def cmd_status(settings: Settings, problems: list[str]) -> int:
     return 0
 
 
+def _build_discovery(settings: Settings, store, collector_db: str):
+    """Build the Discovery Mode pipeline, or None when it cannot run."""
+    from compass_agent.discovery import (
+        DiscoveryPipeline,
+        DuckDuckGoSearch,
+        HttpFetcher,
+        IngestPublisher,
+        SourcePlanner,
+    )
+    from compass_agent.llm import LLMClient
+
+    if not settings.provider_api_key_configured or not collector_db:
+        return None
+    if not settings.sync_token:
+        log.warning("Discovery inactive: AGENT_SYNC_TOKEN not set.")
+        return None
+    llm = LLMClient(
+        api_key=settings.provider_api_key,
+        provider=settings.llm_provider,
+        concurrency=1,
+    )
+    return DiscoveryPipeline(
+        planner=SourcePlanner(search=DuckDuckGoSearch(), max_per_query=8),
+        fetcher=HttpFetcher(),
+        llm=llm,
+        ingest=IngestPublisher(
+            api_url=settings.compass_api_url,
+            token=settings.sync_token,
+            enabled=True,
+        ),
+    )
+
+
 def cmd_daemon(settings: Settings, problems: list[str]) -> int:
     if problems:
         return _print_config_errors(problems)
@@ -142,10 +178,24 @@ def cmd_daemon(settings: Settings, problems: list[str]) -> int:
         max_total=settings.max_total_llm_usd,
         state_file=settings.state_file,
     )
+    # Resolve a real collector DB for gap analysis + discovery candidates.
+    from compass_agent.db import ensure_collector_db
+    from compass_agent.store import AgentStore
+
+    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    store = AgentStore(db_path=settings.store_db or "")
     enrichment = _build_enrichment_workflow(settings, budget)
-    if enrichment is None:
-        print("NOTE: enrichment pipeline inactive (no API key or no candidate DB).", flush=True)
-    daemon = Daemon(settings, budget=budget, enrichment=enrichment)
+    discovery = _build_discovery(settings, store, collector_db)
+    if enrichment is None and discovery is None:
+        print("NOTE: enrichment + discovery inactive (no API key / candidate DB / sync token).", flush=True)
+    daemon = Daemon(
+        settings,
+        budget=budget,
+        enrichment=enrichment,
+        discovery=discovery,
+        collector_db=collector_db,
+        store=store,
+    )
     return daemon.run()
 
 
@@ -211,6 +261,56 @@ def cmd_metrics(settings: Settings, problems: list[str]) -> int:
     return 0
 
 
+def cmd_campaign(settings: Settings, problems: list[str], action: str, sources: int) -> int:
+    if problems:
+        return _print_config_errors(problems)
+    from compass_agent.db import ensure_collector_db
+    from compass_agent.evidence_ops import load_records, run_evidence_ops
+    from compass_agent.gap_analysis import analyze_gaps
+    from compass_agent.store import AgentStore
+
+    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if not collector_db:
+        print("No collector DB available (AGENT_CANDIDATE_DB).")
+        return 1
+    store = AgentStore(db_path=settings.store_db or "")
+
+    if action == "plan":
+        gaps = analyze_gaps(load_records(collector_db))
+        print("Evidence gaps (ranked by expected impact):")
+        for g in gaps[:8]:
+            print(
+                f"  {g.expected_impact:.2f}  {g.workflow:<28s} {g.business_function:<18s} "
+                f"records={g.total_records} gold={g.gold} missing={','.join(g.missing_fields) or '-'}"
+            )
+        return 0
+
+    if action == "list":
+        campaigns = store.list_campaigns()
+        if not campaigns:
+            print("No campaigns.")
+            return 0
+        for c in campaigns:
+            print(
+                f"  {c['id'][:8]} {c['status']:<9s} {c['workflow']:<28s} "
+                f"discovered={c['discovered']} accepted={c['accepted']} rejected={c['rejected']} "
+                f"cost=${c['cost_usd']:.4f}"
+            )
+        return 0
+
+    if action == "run":
+        discovery = _build_discovery(settings, store, collector_db)
+        if discovery is None:
+            print("Discovery unavailable (need API key + AGENT_SYNC_TOKEN).")
+            return 1
+        result = run_evidence_ops(store, collector_db, discovery, max_sources=sources)
+        print(f"Evidence ops pass: campaign={result.get('campaign')} "
+              f"discovered={result.get('discovered')} accepted={result.get('accepted')} "
+              f"rejected={result.get('rejected')} cost=${result.get('cost_usd', 0):.4f}")
+        return 0
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -233,6 +333,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_benchmark(settings, problems, dry_run=args.dry_run, gold_set=args.gold_set)
     if args.command == "metrics":
         return cmd_metrics(settings, problems)
+    if args.command == "campaign":
+        return cmd_campaign(settings, problems, args.action, args.sources)
 
     parser.print_help()
     return 0

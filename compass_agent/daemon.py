@@ -239,6 +239,9 @@ class Daemon:
         logger: Optional[logging.Logger] = None,
         enrichment=None,
         budget: Optional[BudgetTracker] = None,
+        discovery=None,
+        collector_db: str = "",
+        store=None,
     ) -> None:
         self.settings = settings
         self.health_check = health_check
@@ -247,6 +250,9 @@ class Daemon:
         self.max_backoff = max_backoff
         self.logger = logger or log
         self.enrichment = enrichment
+        self.discovery = discovery
+        self.collector_db = collector_db
+        self.store = store
         self.notify = None
         if settings.notify_webhook:
             self.notify = lambda alert: _post_json(settings.notify_webhook, alert)
@@ -323,6 +329,36 @@ class Daemon:
                 self.logger.warning("Cycle %d: %s", cycle, failure)
             self.budget.check_alerts(logger=self.logger, notify=self.notify)
             return report.processed
+
+        # Evidence Operations: Inspect → Plan → Discover (budget-gated).
+        if self.discovery is not None and self.collector_db and self.store:
+            from compass_agent.evidence_ops import run_evidence_ops
+
+            if not self.budget.can_work():
+                self.logger.warning(
+                    "Cycle %d: budget exhausted — skipping discovery.", cycle
+                )
+                return 0
+            ops = run_evidence_ops(
+                store=self.store,
+                collector_db=self.collector_db,
+                discovery=self.discovery,
+                max_sources=min(self.settings.max_docs_per_cycle, 3),
+            )
+            self.budget.check_alerts(logger=self.logger, notify=self.notify)
+            self.logger.info(
+                "Cycle %d: evidence-ops campaign=%s discovered=%d accepted=%d "
+                "rejected=%d cost=$%.4f (daily $%.2f / %.2f).",
+                cycle,
+                ops.get("campaign"),
+                ops.get("discovered", 0),
+                ops.get("accepted", 0),
+                ops.get("rejected", 0),
+                ops.get("cost_usd", 0.0),
+                self.budget.daily_spent,
+                self.settings.max_daily_llm_usd,
+            )
+            return ops.get("discovered", 0)
 
         self.logger.info(
             "Cycle %d: budget OK (daily $%.2f / %.2f, total $%.2f / %.2f). "

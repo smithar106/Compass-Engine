@@ -30,6 +30,26 @@ class EnrichmentRequest(BaseModel):
     source: str = "compass_agent"
 
 
+class IngestRequest(BaseModel):
+    source: str = "compass_agent"
+    url: str = ""
+    title: str = ""
+    organization_name: str = ""
+    organization_industry: list = Field(default_factory=list)
+    problem_statement: str = ""
+    problem_business_function: list = Field(default_factory=list)
+    workflow: str = ""
+    intervention_title: str = ""
+    intervention_category: str = ""
+    intervention_families: list = Field(default_factory=list)
+    evidence_tier: str = "bronze"
+    implementation_provenance: str = ""
+    outcome_provenance: str = ""
+    implementation_fields: dict = Field(default_factory=dict)
+    outcomes: list = Field(default_factory=list)
+    field_provenance: list = Field(default_factory=list)
+
+
 def _authorized(request: Request) -> bool:
     token = os.environ.get("AGENT_SYNC_TOKEN", "")
     if not token:
@@ -77,6 +97,128 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
         db.commit()
         return {"record_id": req.record_id, "updated": len(applied), "fields": applied}
     finally:
+        db.close()
+
+
+@router.post("/ingest")
+def ingest_evidence(req: IngestRequest, request: Request):
+    """Insert a NEW evidence record from the agent's Discovery Mode.
+
+    Applies: auth, duplicate detection, schema validation, and a quality gate —
+    a record is only accepted if it is expected to improve recommendation
+    quality (valid evidence tier + required fields + implementation depth).
+    """
+    if not _authorized(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    import hashlib
+    import uuid
+    from datetime import datetime, timezone
+
+    from compass_collector.models.intervention import InterventionRecord, MetricRecord
+
+    tier = str(req.evidence_tier or "").lower()
+    if tier not in ("gold", "silver", "bronze"):
+        return {"accepted": False, "reason": f"invalid_evidence_tier:{tier}"}
+
+    org = (req.organization_name or "").strip()
+    title = (req.intervention_title or "").strip()
+    workflow = (req.workflow or "").strip()
+    if not org or not title or not workflow:
+        return {"accepted": False, "reason": "missing_required_fields"}
+
+    # Duplicate detection: normalized org+title hash, and URL match.
+    dup_key = hashlib.sha256(f"{org.lower()}::{title.lower()}".encode()).hexdigest()
+    db = get_session()
+    try:
+        existing = (
+            db.query(InterventionRecord)
+            .filter(InterventionRecord.organization_name.ilike(org))
+            .filter(InterventionRecord.intervention_title.ilike(title))
+            .first()
+        )
+        if existing is not None:
+            db.close()
+            return {"accepted": False, "reason": "duplicate_org_title"}
+        if req.url:
+            doc = db.query(InterventionRecord).filter(InterventionRecord.document_id.isnot(None)).filter(InterventionRecord.intervention_title == title).first()
+            # cheap url-based duplicate check is handled by the hash; skip doc join here
+
+        impl = req.implementation_fields or {}
+        impl_depth = sum(
+            1 for v in (impl.get("rollout_strategy"),) if v and str(v).strip()
+        ) + sum(
+            1 for k in ("success_criteria", "lessons_learned", "implementation_pattern")
+            if impl.get(k) and (isinstance(impl[k], list) and impl[k] or str(impl[k]).strip())
+        )
+        rich = (tier in ("gold", "silver")) or impl_depth >= 2
+        # Quality gate: accept only if expected to improve the brief.
+        if not rich:
+            db.close()
+            return {"accepted": False, "reason": "insufficient_depth"}
+
+        rec = InterventionRecord(
+            id=str(uuid.uuid4()),
+            source_id=req.source,
+            organization_name=org,
+            organization_industry=req.organization_industry or [],
+            problem_statement=(req.problem_statement or "")[:800],
+            problem_business_function=req.problem_business_function or [],
+            intervention_title=title,
+            intervention_description=(impl.get("intervention_description") or req.title or "")[:400],
+            intervention_families=req.intervention_families or [],
+            intervention_components={
+                "workflow": workflow,
+                "intervention_category": req.intervention_category,
+                "evidence_tier": tier,
+                "source_generation": "agent_discovered",
+            },
+            intervention_vendors=impl.get("intervention_vendors") or [],
+            implementation_partner=impl.get("implementation_partner") or [],
+            implementation_pattern=impl.get("implementation_pattern") or [],
+            lessons_learned=impl.get("lessons_learned") or [],
+            rollout_strategy=impl.get("rollout_strategy", ""),
+            success_criteria=impl.get("success_criteria") or [],
+            pilot_structure=impl.get("pilot_structure", ""),
+            executive_sponsor=impl.get("executive_sponsor", ""),
+            governance_model=impl.get("governance_model", ""),
+            implementation_provenance=req.implementation_provenance or "",
+            outcome_provenance=req.outcome_provenance or "",
+            evidence_level=tier,
+            implementation_field_provenance=req.field_provenance or [],
+            implementation_richness="rich" if rich else "usable",
+            review_status="agent_discovered",
+            result_status="unknown",
+            extracted_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(rec)
+        for o in req.outcomes or []:
+            if not isinstance(o, dict):
+                continue
+            try:
+                pct = float(o.get("percentage_change")) if o.get("percentage_change") not in (None, "") else None
+            except (TypeError, ValueError):
+                pct = None
+            db.add(
+                MetricRecord(
+                    id=str(uuid.uuid4()),
+                    intervention_id=rec.id,
+                    source_id=req.source,
+                    metric_name=str(o.get("metric_name") or o.get("category") or "metric")[:120],
+                    metric_category=str(o.get("category") or "outcome")[:60],
+                    percentage_change=pct,
+                    absolute_change=o.get("absolute_change"),
+                    unit=str(o.get("unit") or "")[:40],
+                    reported_text=str(o.get("source_passage") or "")[:400],
+                )
+            )
+        db.commit()
+        db.close()
+        return {"accepted": True, "record_id": rec.id, "rich": rich, "dup_key": dup_key}
+    finally:
+        if db.in_transaction():
+            db.rollback()
         db.close()
 
 

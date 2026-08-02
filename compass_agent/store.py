@@ -44,6 +44,25 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     report     TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS campaigns (
+    id                     TEXT PRIMARY KEY,
+    workflow               TEXT NOT NULL,
+    business_function      TEXT NOT NULL,
+    status                 TEXT NOT NULL DEFAULT 'planned',
+    target_fields          TEXT NOT NULL DEFAULT '[]',
+    source_types           TEXT NOT NULL DEFAULT '[]',
+    estimated_records_needed INTEGER NOT NULL DEFAULT 0,
+    expected_impact        REAL NOT NULL DEFAULT 0,
+    discovered             INTEGER NOT NULL DEFAULT 0,
+    accepted               INTEGER NOT NULL DEFAULT 0,
+    rejected               INTEGER NOT NULL DEFAULT 0,
+    rich_records_created   INTEGER NOT NULL DEFAULT 0,
+    cost_usd               REAL NOT NULL DEFAULT 0,
+    benchmark_before       REAL NOT NULL DEFAULT 0,
+    benchmark_after        REAL,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL
+);
 """
 
 
@@ -180,6 +199,63 @@ class AgentStore:
             data["report"] = json.loads(data["report"] or "{}")
             out.append(data)
         return out
+
+    # -- campaigns ---------------------------------------------------------
+    def save_campaign(self, campaign: dict) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO campaigns (id, workflow, business_function,"
+                " status, target_fields, source_types, estimated_records_needed,"
+                " expected_impact, discovered, accepted, rejected,"
+                " rich_records_created, cost_usd, benchmark_before, benchmark_after,"
+                " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    campaign["id"],
+                    campaign["workflow"],
+                    campaign["business_function"],
+                    campaign["status"],
+                    json.dumps(campaign.get("target_fields", [])),
+                    json.dumps(campaign.get("source_types", [])),
+                    campaign.get("estimated_records_needed", 0),
+                    campaign.get("expected_impact", 0.0),
+                    campaign.get("discovered", 0),
+                    campaign.get("accepted", 0),
+                    campaign.get("rejected", 0),
+                    campaign.get("rich_records_created", 0),
+                    campaign.get("cost_usd", 0.0),
+                    campaign.get("benchmark_before", 0.0),
+                    campaign.get("benchmark_after"),
+                    campaign.get("created_at") or _now(),
+                    campaign.get("updated_at") or _now(),
+                ),
+            )
+
+    def list_campaigns(self, status: Optional[str] = None) -> list[dict]:
+        if status:
+            rows = self.conn.execute(
+                "SELECT * FROM campaigns WHERE status = ? ORDER BY created_at DESC", (status,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute("SELECT * FROM campaigns ORDER BY created_at DESC").fetchall()
+        out = []
+        for row in rows:
+            data = dict(row)
+            data["target_fields"] = json.loads(data["target_fields"] or "[]")
+            data["source_types"] = json.loads(data["source_types"] or "[]")
+            out.append(data)
+        return out
+
+    def update_campaign(self, campaign_id: str, **fields) -> None:
+        if not fields:
+            return
+        fields = {k: v for k, v in fields.items()}
+        fields["updated_at"] = _now()
+        assignments = ", ".join(f"{k} = ?" for k in fields)
+        with self.conn:
+            self.conn.execute(
+                f"UPDATE campaigns SET {assignments} WHERE id = ?",
+                (*fields.values(), campaign_id),
+            )
 
 
 def format_budget_state(budget) -> dict:

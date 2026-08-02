@@ -107,5 +107,81 @@ class TestEnrichmentEndpoint(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
 
+class TestIngestEndpoint(unittest.TestCase):
+    def _ingest(self, req, token="sync-secret"):
+        from compass_collector.api.enrichment_router import IngestRequest, ingest_evidence
+
+        with patch("compass_collector.api.enrichment_router.get_session", side_effect=lambda: _TestSession()):
+            return ingest_evidence(req, FakeRequest({"X-Compass-Agent-Key": token}))
+
+    def _req(self, org="Acme Ingest", title="AI onboarding automation", tier="silver", depth=2):
+        from compass_collector.api.enrichment_router import IngestRequest
+
+        return IngestRequest(
+            organization_name=org,
+            intervention_title=title,
+            workflow="onboarding",
+            evidence_tier=tier,
+            organization_industry=["technology"],
+            implementation_fields={
+                "rollout_strategy": "Pilot in one team, then phased rollout",
+                "success_criteria": ["onboarding time < 5 days"],
+                "lessons_learned": ["train champions early"],
+                "implementation_pattern": ["Pilot -> Department Rollout"],
+            } if depth >= 2 else {"rollout_strategy": "x"} if depth == 1 else {},
+            outcomes=[{"metric_name": "onboarding_time", "category": "time", "percentage_change": -60}],
+        )
+
+    def test_accepts_rich_record(self):
+        result = self._ingest(self._req())
+        self.assertTrue(result["accepted"])
+        self.assertTrue(result["rich"])
+        self.assertTrue(result["record_id"])
+        session = _TestSession()
+        rec = session.query(InterventionRecord).filter_by(id=result["record_id"]).first()
+        session.close()
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.evidence_level, "silver")
+        self.assertEqual(rec.organization_name, "Acme Ingest")
+
+    def test_duplicate_rejected(self):
+        self._ingest(self._req())
+        result = self._ingest(self._req())
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "duplicate_org_title")
+
+    def test_invalid_tier_rejected(self):
+        from compass_collector.api.enrichment_router import IngestRequest
+
+        result = self._ingest(IngestRequest(
+            organization_name="X", intervention_title="T", workflow="w",
+            evidence_tier="rejected",
+        ))
+        self.assertFalse(result["accepted"])
+        self.assertIn("invalid_evidence_tier", result["reason"])
+
+    def test_missing_required_rejected(self):
+        from compass_collector.api.enrichment_router import IngestRequest
+
+        result = self._ingest(IngestRequest(
+            organization_name="", intervention_title="T", workflow="w", evidence_tier="silver"
+        ))
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "missing_required_fields")
+
+    def test_insufficient_depth_rejected(self):
+        result = self._ingest(self._req(org="Acme Shallow", tier="bronze", depth=0))
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "insufficient_depth")
+
+    def test_unauthorized(self):
+        from compass_collector.api.enrichment_router import IngestRequest
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as ctx:
+            self._ingest(self._req(), token="")
+        self.assertEqual(ctx.exception.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
