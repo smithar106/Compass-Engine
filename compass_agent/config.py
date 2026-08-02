@@ -49,6 +49,7 @@ class Settings:
     candidate_db: str = ""
     auto_download_db: bool = True
     sync_token: str = ""
+    notify_webhook: str = ""
     log_level: str = "INFO"
 
     @classmethod
@@ -99,6 +100,7 @@ class Settings:
             candidate_db=str(env.get("AGENT_CANDIDATE_DB") or "").strip(),
             auto_download_db=_parse_bool(env.get("AGENT_AUTO_DOWNLOAD_DB"), True),
             sync_token=str(env.get("AGENT_SYNC_TOKEN") or "").strip(),
+            notify_webhook=str(env.get("AGENT_NOTIFY_WEBHOOK") or "").strip(),
             log_level=str(env.get("AGENT_LOG_LEVEL") or "INFO").strip().upper(),
         )
         problems.extend(settings.validate())

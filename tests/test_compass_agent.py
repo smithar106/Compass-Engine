@@ -228,6 +228,113 @@ class TestBudgetTracker(unittest.TestCase):
             self.assertTrue(b2.can_work())  # daily 1.5 < 2.0, total 1.5 < 10
 
 
+class TestBudgetAlerts(unittest.TestCase):
+    def test_emits_threshold_alerts_once(self):
+        import io
+        import logging
+
+        from compass_agent.daemon import BudgetTracker
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        logger = logging.getLogger("alert-test")
+        logger.setLevel(logging.WARNING)
+        logger.handlers = [handler]
+
+        b = BudgetTracker(max_daily=1.0, max_total=10.0)
+        notified = []
+
+        # 0.76 -> 76% daily fires the 75% alert (not 90/100)
+        b.spend(0.76)
+        alerts = b.check_alerts(logger=logger, notify=notified.append)
+        self.assertEqual([(a["kind"], a["threshold"]) for a in alerts], [("daily", 75)])
+        self.assertEqual(len(notified), 1)
+
+        # second call: nothing new fires
+        self.assertEqual(b.check_alerts(logger=logger, notify=notified.append), [])
+        self.assertEqual(len(notified), 1)
+
+        # crossing 90%
+        b.spend(0.15)  # 0.91 -> 91%
+        alerts = b.check_alerts(logger=logger, notify=notified.append)
+        self.assertEqual([(a["kind"], a["threshold"]) for a in alerts], [("daily", 90)])
+        self.assertEqual(len(notified), 2)
+
+        # daily cap reached
+        b.spend(0.09)  # 1.00 -> 100%
+        alerts = b.check_alerts(logger=logger, notify=notified.append)
+        self.assertEqual([(a["kind"], a["threshold"]) for a in alerts], [("daily", 100)])
+
+        payload = buf.getvalue()
+        self.assertIn('"event":"budget_alert"', payload.replace(" ", ""))
+        self.assertIn('"threshold":100', payload.replace(" ", ""))
+
+    def test_total_alerts_fire_too(self):
+        from compass_agent.daemon import BudgetTracker
+
+        b = BudgetTracker(max_daily=10.0, max_total=4.0)
+        b.spend(3.1)  # total 77.5%
+        alerts = b.check_alerts(notify=None)
+        self.assertIn(("total", 75), [(a["kind"], a["threshold"]) for a in alerts])
+
+    def test_daily_alerts_rearm_on_rollover(self):
+        from compass_agent.daemon import BudgetTracker
+        from datetime import date, timedelta
+
+        b = BudgetTracker(max_daily=1.0, max_total=10.0, today=date(2026, 8, 2))
+        b.spend(0.76)
+        b.check_alerts(notify=None)
+        self.assertEqual([(k, t) for (k, t) in b._fired], [("daily", 75)])
+
+        # simulate new day
+        b2 = BudgetTracker(max_daily=1.0, max_total=10.0, today=date(2026, 8, 3))
+        b2._day = date(2026, 8, 3)
+        b2.spend(0.76)  # rolls the day, clears daily fired
+        alerts = b2.check_alerts(notify=None)
+        self.assertIn(("daily", 75), [(a["kind"], a["threshold"]) for a in alerts])
+
+
+class TestMetrics(unittest.TestCase):
+    def test_metrics_report(self):
+        import sqlite3
+
+        from compass_agent.metrics import compute_metrics
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = os.path.join(tmp, "agent_store.db")
+            conn = sqlite3.connect(store)
+            conn.executescript(
+                """
+                CREATE TABLE enrichment_results (
+                    id TEXT PRIMARY KEY, candidate_id TEXT, record_id TEXT,
+                    payload TEXT, validation TEXT, valid INTEGER,
+                    cost REAL, input_tokens INTEGER, output_tokens INTEGER,
+                    model TEXT, created_at TEXT
+                );
+                CREATE TABLE claims (
+                    candidate_id TEXT PRIMARY KEY, claimed_at TEXT, status TEXT,
+                    owner TEXT, attempts INTEGER, record_id TEXT,
+                    doc_id TEXT, source TEXT
+                );
+                """
+            )
+            conn.execute(
+                "INSERT INTO enrichment_results VALUES "
+                "('1','c1','r1','{}','{}',1,0.002,100,50,'m','t'),"
+                "('2','c2','r2','{}','{}',1,0.001,80,40,'m','t'),"
+                "('3','c3','r3','{}','{}',0,0.001,90,45,'m','t')"
+            )
+            conn.commit()
+            conn.close()
+
+            report = compute_metrics(store_db=store, collector_db="")
+            self.assertEqual(report["attempted_records"], 3)
+            self.assertEqual(report["valid_enrichments"], 2)
+            self.assertEqual(report["invalid_enrichments"], 1)
+            self.assertAlmostEqual(report["total_cost_usd"], 0.004)
+            self.assertEqual(report["cost_per_valid_enrichment"], 0.002)
+
+
 class TestDaemonBehavior(unittest.TestCase):
     def _captured_logger(self):
         logger = logging.getLogger("compass_agent.test")

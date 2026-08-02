@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true",
         help="Run against the built-in gold set with a deterministic reference extractor (no LLM)",
     )
+    sub.add_parser("metrics", help="Print enrichment cost/rejection/richness metrics from the agent store")
     return parser
 
 
@@ -200,6 +201,16 @@ def cmd_benchmark(settings: Settings, problems: list[str], dry_run: bool, gold_s
     return 0
 
 
+def cmd_metrics(settings: Settings, problems: list[str]) -> int:
+    if problems:
+        return _print_config_errors(problems)
+    from compass_agent.metrics import compute_metrics, print_metrics
+
+    report = compute_metrics(store_db=settings.store_db, collector_db=settings.candidate_db)
+    print_metrics(report)
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -220,6 +231,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_daemon(settings, problems)
     if args.command == "benchmark":
         return cmd_benchmark(settings, problems, dry_run=args.dry_run, gold_set=args.gold_set)
+    if args.command == "metrics":
+        return cmd_metrics(settings, problems)
 
     parser.print_help()
     return 0

@@ -32,6 +32,25 @@ log = logging.getLogger("compass_agent")
 DEFAULT_INITIAL_BACKOFF_SECONDS = 5.0
 DEFAULT_MAX_BACKOFF_SECONDS = 60.0
 
+# Budget alert thresholds (percent of the ceiling). Each fires once per
+# reset window (daily alerts re-arm on a new UTC day; total alerts fire once).
+BUDGET_ALERT_THRESHOLDS = (75, 90, 100)
+
+
+def _post_json(url: str, payload: dict, timeout: float = 10.0) -> bool:
+    """Fire-and-forget POST of a JSON payload (budget alert webhook)."""
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        return False
+
 
 def check_engine_health(url: str, timeout: float = 10.0) -> "tuple[bool, str]":
     """Return ``(reachable, detail)`` for the Engine ``/health`` endpoint.
@@ -97,7 +116,49 @@ class BudgetTracker:
         self._day = today or date.today()
         self._daily_spent = 0.0
         self._total_spent = 0.0
+        self._fired: set = set()  # {(kind, threshold)} alerts already emitted
         self._load()
+
+    # -- alert thresholds --------------------------------------------------
+    def check_alerts(self, logger: logging.Logger = None, notify=None) -> "list[dict]":
+        """Emit structured budget alerts for newly-crossed thresholds.
+
+        Each threshold fires once (daily alerts re-arm on day rollover). Returns
+        the list of fired alerts. ``notify`` is an optional callable that
+        receives each alert dict (e.g. a webhook POST).
+        """
+        logger = logger or log
+        fired: list[dict] = []
+        for kind, spent, ceiling in (
+            ("daily", self._daily_spent, self.max_daily),
+            ("total", self._total_spent, self.max_total),
+        ):
+            if ceiling <= 0:
+                continue
+            pct = 100.0 * spent / ceiling
+            for threshold in BUDGET_ALERT_THRESHOLDS:
+                if pct >= threshold and (kind, threshold) not in self._fired:
+                    self._fired.add((kind, threshold))
+                    alert = {
+                        "event": "budget_alert",
+                        "kind": kind,
+                        "threshold": threshold,
+                        "spent": round(spent, 6),
+                        "max": ceiling,
+                        "pct": round(pct, 1),
+                    }
+                    payload = json.dumps(alert)
+                    if threshold >= 100:
+                        logger.error(payload)
+                    else:
+                        logger.warning(payload)
+                    fired.append(alert)
+                    if notify is not None:
+                        try:
+                            notify(alert)
+                        except Exception as exc:  # never let notify crash the loop
+                            logger.warning("budget alert notify failed: %s", exc)
+        return fired
 
     # -- persistence -------------------------------------------------------
     def _state_path(self) -> Optional[Path]:
@@ -143,6 +204,8 @@ class BudgetTracker:
         if now != self._day:
             self._day = now
             self._daily_spent = 0.0
+            # re-arm daily alerts for the new day (keep total alerts fired once)
+            self._fired = {(k, t) for (k, t) in self._fired if k != "daily"}
         self._daily_spent += amount
         self._total_spent += amount
         self._save()
@@ -184,6 +247,9 @@ class Daemon:
         self.max_backoff = max_backoff
         self.logger = logger or log
         self.enrichment = enrichment
+        self.notify = None
+        if settings.notify_webhook:
+            self.notify = lambda alert: _post_json(settings.notify_webhook, alert)
         self.budget = budget or BudgetTracker(
             max_daily=settings.max_daily_llm_usd,
             max_total=settings.max_total_llm_usd,
@@ -255,6 +321,7 @@ class Daemon:
             )
             for failure in report.failures[:5]:
                 self.logger.warning("Cycle %d: %s", cycle, failure)
+            self.budget.check_alerts(logger=self.logger, notify=self.notify)
             return report.processed
 
         self.logger.info(
