@@ -1,0 +1,6 @@
+# Add Node + the OpenCLI tool (no API key required) so the Evidence Agent's
+# Discovery Mode can use OpenCLI search adapters (HN, Reddit, Dev.to, arXiv,
+# Google Scholar) from the Railway container — not just the operator's machine.
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+cmds = ["npm install -g @jackwener/opencli@1.8.3 || true"]
