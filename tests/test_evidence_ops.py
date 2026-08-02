@@ -8,6 +8,7 @@ from types import SimpleNamespace as NS
 from compass_agent.gap_analysis import analyze_gaps
 from compass_agent.campaign import CampaignPlanner
 from compass_agent.discovery import (
+    _clean_url,
     DiscoveryPipeline,
     SourcePlanner,
     StubFetcher,
@@ -135,6 +136,15 @@ class TestCampaignPlanner(unittest.TestCase):
 
 
 class TestDiscovery(unittest.TestCase):
+    def test_clean_url_decodes_duckduckgo_redirect(self):
+        url = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.example.com%2Fcase-study&rut=abc"
+        cleaned = _clean_url(url)
+        self.assertEqual(cleaned, "https://www.example.com/case-study")
+        # plain protocol-relative → https:
+        self.assertEqual(_clean_url("//example.com/x"), "https://example.com/x")
+        # already absolute unchanged
+        self.assertEqual(_clean_url("https://example.com/x"), "https://example.com/x")
+
     def test_build_queries_targets_workflow(self):
         queries = build_queries("invoice_processing", ["vendor_case_study"])
         self.assertTrue(queries)

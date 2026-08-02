@@ -31,6 +31,27 @@ class SearchBackend:
         raise NotImplementedError
 
 
+def _clean_url(url: str) -> str:
+    """Resolve a search-result URL to a fetchable absolute http(s) URL.
+
+    DuckDuckGo returns protocol-relative redirect URLs like
+    ``//duckduckgo.com/l/?uddg=<urlencoded-real-url>``; decode the real target.
+    """
+    url = (url or "").strip()
+    if url.startswith("//"):
+        url = "https:" + url
+    if "duckduckgo.com/l/" in url and "uddg=" in url:
+        try:
+            from urllib.parse import parse_qs, unquote, urlparse
+
+            qs = parse_qs(urlparse(url).query)
+            if qs.get("uddg"):
+                return unquote(qs["uddg"][0])
+        except Exception:
+            pass
+    return url
+
+
 class DuckDuckGoSearch(SearchBackend):
     """Real search via the engine's WebSearchScraper (no API key)."""
 
@@ -39,7 +60,13 @@ class DuckDuckGoSearch(SearchBackend):
 
         try:
             scraper = WebSearchScraper()
-            return scraper.duckduckgo_search(query, max_results=max_results)
+            results = scraper.duckduckgo_search(query, max_results=max_results)
+            cleaned = []
+            for r in results:
+                url = _clean_url(r.get("url", ""))
+                if url.startswith(("http://", "https://")):
+                    cleaned.append({**r, "url": url})
+            return cleaned
         except Exception as exc:
             log.warning("DuckDuckGo search failed for %r: %s", query, exc)
             return []
@@ -68,6 +95,9 @@ class HttpFetcher(Fetcher):
         import httpx
         from bs4 import BeautifulSoup
 
+        if not url.startswith(("http://", "https://")):
+            log.warning("skip fetch for non-http URL: %s", url)
+            return ""
         try:
             resp = httpx.get(url, timeout=30, follow_redirects=True, headers={"User-Agent": "CompassEvidenceAgent/1.0"})
             resp.raise_for_status()
