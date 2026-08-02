@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from typing import Optional
 
 from compass_agent import __version__
 from compass_agent.config import Settings, load_settings
 from compass_agent.daemon import Daemon, check_engine_health, print_startup_summary
+
+log = logging.getLogger("compass_agent")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,9 +59,10 @@ def _print_config_errors(problems: list[str]) -> int:
 
 
 def _build_enrichment_workflow(settings: Settings, budget):
-    """Build the budget-controlled enrichment pipeline, or None when no key."""
+    """Build the budget-controlled enrichment pipeline, or None when it cannot run."""
     from compass_agent.claim import ClaimQueue, CollectorCandidateProvider
     from compass_agent.daemon import BudgetTracker
+    from compass_agent.db import ensure_collector_db
     from compass_agent.enrich import EnrichmentPipeline
     from compass_agent.llm import LLMClient
     from compass_agent.publish import NoopPublisher, Publisher
@@ -70,15 +72,14 @@ def _build_enrichment_workflow(settings: Settings, budget):
     if not settings.provider_api_key_configured:
         return None
 
-    db_path = os.environ.get("AGENT_CANDIDATE_DB", os.environ.get("COLLECTOR_DATABASE_URL", ""))
-    if db_path.startswith("sqlite:///"):
-        db_path = db_path[len("sqlite:///"):]
-
-    store = AgentStore(db_path=settings.state_file or "")
-    provider = CollectorCandidateProvider(db_path=db_path) if db_path else None
-    if provider is None:
+    # Resolve a real collector DB (downloads it when missing / a git-lfs pointer).
+    db_path = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if not db_path:
+        log.warning("Enrichment inactive: no valid collector DB (AGENT_CANDIDATE_DB).")
         return None
 
+    store = AgentStore(db_path=settings.state_file or "")
+    provider = CollectorCandidateProvider(db_path=db_path)
     queue = ClaimQueue(provider=provider, store=store)
     llm = LLMClient(
         api_key=settings.provider_api_key,

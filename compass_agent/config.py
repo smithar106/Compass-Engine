@@ -45,6 +45,8 @@ class Settings:
     sleep_seconds: float = 900
     auto_publish: bool = False
     state_file: str = ""
+    candidate_db: str = ""
+    auto_download_db: bool = True
     log_level: str = "INFO"
 
     @classmethod
@@ -91,6 +93,8 @@ class Settings:
             sleep_seconds=_num("AGENT_SLEEP_SECONDS", 900),
             auto_publish=_parse_bool(env.get("AGENT_AUTO_PUBLISH"), False),
             state_file=str(env.get("AGENT_STATE_FILE") or "").strip(),
+            candidate_db=str(env.get("AGENT_CANDIDATE_DB") or "").strip(),
+            auto_download_db=_parse_bool(env.get("AGENT_AUTO_DOWNLOAD_DB"), True),
             log_level=str(env.get("AGENT_LOG_LEVEL") or "INFO").strip().upper(),
         )
         problems.extend(settings.validate())
