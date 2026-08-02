@@ -24,9 +24,9 @@ class CandidateProvider:
 class CollectorCandidateProvider(CandidateProvider):
     """Candidates from a Compass collector SQLite database.
 
-    Targets intervention records that are not yet implementation-rich and have
-    retrievable source text. ``db_path`` is a path to a collector DB; when the
-    file is absent the provider returns no candidates (graceful degradation).
+    Targets intervention records that need enrichment: thin/not-yet-rich
+    records, or rich records still missing organization dimensions (employee
+    count or geography) that the LLM enrichment can backfill.
     """
 
     def __init__(self, db_path: str, min_text_chars: int = 120) -> None:
@@ -55,8 +55,13 @@ class CollectorCandidateProvider(CandidateProvider):
                        d.title AS title
                 FROM intervention_records r
                 LEFT JOIN documents d ON d.id = r.document_id
-                WHERE (r.implementation_richness IS NULL
-                       OR r.implementation_richness IN ('thin','usable'))
+                WHERE (
+                        (r.implementation_richness IS NULL
+                         OR r.implementation_richness IN ('thin','usable'))
+                        OR r.organization_employee_count IS NULL
+                        OR r.organization_geography IS NULL
+                        OR r.organization_geography = '[]'
+                      )
                   AND (COALESCE(r.implementation_field_provenance,'[]') = '[]'
                        OR r.implementation_field_provenance IS NULL)
                 ORDER BY r.created_at ASC

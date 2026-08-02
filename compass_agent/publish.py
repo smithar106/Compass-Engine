@@ -2,15 +2,76 @@
 
 Only writes when auto-publish is enabled and a collector DB path is known.
 Otherwise it logs what *would* have been written.
+
+Beyond the Implementation Intelligence fields, publishing backfills the
+organization dimensions needed for context-aware retrieval: employee count
+(and band) from the LLM extraction, and geography inferred deterministically
+from the source text when not already present.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 
 log = logging.getLogger("compass_agent.publish")
+
+_GEO_PATTERNS = [
+    (r"\b(?:based|headquartered|headquarters) in ([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)", 0.8),
+    (r"\b(U\.S\.|USA|United States|UK|Germany|Canada|Japan|Australia|India|China|Singapore|Brazil|Netherlands|Sweden|Switzerland|France|Spain|Italy)\b", 0.7),
+]
+_COUNTRY_MAP = {
+    "us": "United States", "usa": "United States", "u.s.": "United States",
+    "united states": "United States", "uk": "United Kingdom",
+    "united kingdom": "United Kingdom",
+}
+_EMP_PATTERNS = [
+    r"(\d[\d,]*)\s*(?:employees|people|staff|ftes)",
+    r"(?:more than|over|>|~|around)\s*(\d[\d,]*)\s*employees",
+]
+
+
+def _infer_geography(text: str) -> str:
+    if not text:
+        return ""
+    for pattern, _conf in _GEO_PATTERNS:
+        m = re.search(pattern, text)
+        if m:
+            candidate = m.group(1).strip()
+            key = candidate.lower()
+            return _COUNTRY_MAP.get(key, candidate)
+    return ""
+
+
+def _infer_employee_count(text: str) -> int | None:
+    if not text:
+        return None
+    for pattern in _EMP_PATTERNS:
+        m = re.search(pattern, text)
+        if m:
+            try:
+                return int(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+    return None
+
+
+def _employee_count_to_band(count) -> str:
+    if count is None:
+        return ""
+    if count < 10:
+        return "<10"
+    if count < 50:
+        return "10-50"
+    if count < 200:
+        return "50-200"
+    if count < 1000:
+        return "200-1000"
+    if count < 10000:
+        return "1000-10000"
+    return "10000+"
 
 
 class Publisher:
@@ -24,7 +85,7 @@ class Publisher:
     def active(self) -> bool:
         return self.enabled and bool(self.db_path)
 
-    def publish(self, record_id: str, payload: dict) -> int:
+    def publish(self, record_id: str, payload: dict, source_text: str = "") -> int:
         """Update one intervention record. Returns number of rows updated."""
         if not self.active or not record_id:
             return 0
@@ -62,6 +123,23 @@ class Publisher:
                 "implementation_richness": "rich",
                 "review_status": "agent_enriched",
             }
+
+            # Organization dimensions backfill (employee + geography).
+            employee_count = payload.get("organization_employee_count")
+            if employee_count is None and source_text:
+                employee_count = _infer_employee_count(source_text)
+            if employee_count not in (None, 0, ""):
+                fields["organization_employee_count"] = int(employee_count)
+                fields["organization_employee_band"] = _employee_count_to_band(int(employee_count))
+
+            geography = payload.get("organization_geography") or payload.get("headquarters_country") or ""
+            if isinstance(geography, list):
+                geography = next((g for g in geography if g), "")
+            if not geography and source_text:
+                geography = _infer_geography(source_text)
+            if geography:
+                fields["organization_geography"] = [str(geography)]
+
             assignments = ", ".join(f"{k} = ?" for k in fields)
             values = [_jsonify(v) for v in fields.values()]
             conn.execute(
@@ -86,7 +164,7 @@ def _jsonify(value):
 class NoopPublisher(Publisher):
     """Logs publishes instead of writing (used when auto-publish is off)."""
 
-    def publish(self, record_id: str, payload: dict) -> int:
+    def publish(self, record_id: str, payload: dict, source_text: str = "") -> int:
         if record_id:
             log.info("Would publish enrichment for record %s (auto_publish off)", record_id)
         return 0

@@ -26,6 +26,7 @@ def make_valid_payload(name="Acme Corp", category="AI", tier="silver", workflow=
         "intervention_title": f"{category} {workflow} solution",
         "intervention_category": category,
         "evidence_tier": tier,
+        "organization_employee_count": 5000,
         "outcomes": [{"metric_name": "resolution_time", "percentage_change": -40}],
         "outcome_block": {"percent_change": -40},
     }
@@ -160,6 +161,8 @@ class TestCollectorCandidateProvider(unittest.TestCase):
                 problem_statement TEXT, intervention_title TEXT,
                 implementation_richness TEXT,
                 implementation_field_provenance TEXT,
+                organization_employee_count INTEGER,
+                organization_geography TEXT,
                 created_at TEXT
             );
             """
@@ -168,13 +171,13 @@ class TestCollectorCandidateProvider(unittest.TestCase):
         conn.execute("INSERT INTO documents VALUES (?,?,?)", ("d1", "Shopify story", long_text))
         conn.execute(
             "INSERT INTO intervention_records VALUES "
-            "(?,?,?,?,?,?,?,?)",
-            ("r1", "src", "d1", "problem text", "title", "thin", "[]", "2026-01-01"),
+            "(?,?,?,?,?,?,?,?,?,?)",
+            ("r1", "src", "d1", "problem text", "title", "thin", "[]", None, None, "2026-01-01"),
         )
         conn.execute(
             "INSERT INTO intervention_records VALUES "
-            "(?,?,?,?,?,?,?,?)",
-            ("r2", "src", "d1", "problem", "title", "rich", "[]", "2026-01-01"),
+            "(?,?,?,?,?,?,?,?,?,?)",
+            ("r2", "src", "d1", "problem", "title", "rich", "[]", 5000, '["United States"]', "2026-01-01"),
         )
         conn.commit()
         conn.close()
@@ -242,6 +245,9 @@ class TestWorkflow(unittest.TestCase):
                     training_approach TEXT, adoption_approach TEXT,
                     implementation_team_structure TEXT, budget_range TEXT,
                     key_decision_makers TEXT, success_criteria TEXT,
+                    organization_employee_count INTEGER,
+                    organization_employee_band TEXT,
+                    organization_geography TEXT,
                     review_status TEXT, implementation_richness TEXT
                 );
                 """
@@ -255,7 +261,11 @@ class TestWorkflow(unittest.TestCase):
 
             store = AgentStore()
             budget = BudgetTracker(max_daily=1.0, max_total=5.0)
-            provider = FakeProvider([{"id": "c1", "record_id": "r1", "text": "x" * 300, "title": "t"}])
+            source_text = (
+                "Acme Corp is headquartered in Canada and has 5000 employees. "
+                "The ticketing workflow was automated with an AI solution." * 5
+            )
+            provider = FakeProvider([{"id": "c1", "record_id": "r1", "text": source_text, "title": "t"}])
             queue = ClaimQueue(provider, store)
             pipeline = EnrichmentPipeline(FakeLLM())
             publisher = Publisher(db_path=cdb, enabled=True)
@@ -273,12 +283,19 @@ class TestWorkflow(unittest.TestCase):
             self.assertGreater(budget.total_spent, 0)
             # claim settled
             self.assertIn("c1", store.claimed_ids())
-            # published into collector DB
+            # published into collector DB — including org backfill
             conn = sqlite3.connect(cdb)
-            row = conn.execute("SELECT review_status, implementation_richness FROM intervention_records WHERE id='r1'").fetchone()
+            row = conn.execute(
+                "SELECT review_status, implementation_richness,"
+                " organization_employee_count, organization_employee_band,"
+                " organization_geography FROM intervention_records WHERE id='r1'"
+            ).fetchone()
             conn.close()
             self.assertEqual(row[0], "agent_enriched")
             self.assertEqual(row[1], "rich")
+            self.assertEqual(row[2], 5000)          # employee count from LLM payload
+            self.assertEqual(row[3], "1000-10000")  # derived band
+            self.assertIn("Canada", (row[4] or ""))  # inferred geography from text
 
     def test_second_cycle_does_not_reprocess_claimed(self):
         store = AgentStore()

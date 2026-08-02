@@ -158,7 +158,7 @@ class EnrichmentWorkflow:
             report.valid += 1
             if self.auto_publish and outcome.record_id:
                 report.published += self.publisher.publish(
-                    outcome.record_id, outcome.payload
+                    outcome.record_id, outcome.payload, outcome.source_text
                 )
             self.queue.complete(outcome.candidate_id, status="done")
         else:

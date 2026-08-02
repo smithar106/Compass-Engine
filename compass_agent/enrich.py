@@ -20,6 +20,7 @@ class EnrichmentOutcome:
     model: str
     skipped: bool = False
     skip_reason: str = ""
+    source_text: str = ""
 
     @property
     def valid(self) -> bool:
@@ -72,4 +73,5 @@ class EnrichmentPipeline:
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             model=result.model,
+            source_text=text,
         )
