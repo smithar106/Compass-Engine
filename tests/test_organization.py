@@ -202,6 +202,27 @@ class TestContextRetrieval(unittest.TestCase):
         self.assertEqual(bank_res[0]["organization"], "BankInv")
         self.assertEqual(retail_res[0]["organization"], "RetailInv")
 
+    def test_sparse_geography_boosts_match_but_does_not_penalize_missing(self):
+        q = self._query(workflow="invoice_processing")
+        q.geography = "Canada"
+        plain = rec("Plain", "banking", "invoice_processing")           # no geography
+        with_geo = rec("WithGeo", "banking", "invoice_processing")      # geography present
+        with_geo.organization_geography = ["Canada"]
+        results = find_comparable_implementations_context(q, [plain, with_geo])["results"]
+        by = {r["organization"]: r["fit_breakdown"] for r in results}
+        self.assertGreater(by["WithGeo"]["geography"]["raw"], by["Plain"]["geography"]["raw"])
+        self.assertGreaterEqual(by["Plain"]["geography"]["raw"], 0.5)
+
+    def test_sparse_size_boosts_match_but_does_not_penalize_missing(self):
+        q = self._query(workflow="invoice_processing")
+        no_size = rec("NoSize", "banking", "invoice_processing")
+        no_size.organization_employee_count = None
+        match = rec("Match", "banking", "invoice_processing")           # 5000 → 1000-10000
+        results = find_comparable_implementations_context(q, [no_size, match])["results"]
+        by = {r["organization"]: r["fit_breakdown"] for r in results}
+        self.assertGreater(by["Match"]["organization_size"]["raw"], by["NoSize"]["organization_size"]["raw"])
+        self.assertGreaterEqual(by["NoSize"]["organization_size"]["raw"], 0.5)
+
 
 class TestUserEditOverride(unittest.TestCase):
     def test_user_industry_overrides_registry(self):

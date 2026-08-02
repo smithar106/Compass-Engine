@@ -131,8 +131,12 @@ class ContextFitResult:
 
 
 def _business_function_fit(query: str, record_functions: list[str]) -> float:
-    if not query or not record_functions:
+    """Match on real values; neutral (0.5) when the record has no function data
+    so sparse coverage does not penalize records that lack the field."""
+    if not query:
         return 0.0
+    if not record_functions:
+        return 0.5
     q = query.strip().lower()
     for rf in record_functions:
         r = str(rf).strip().lower()
@@ -171,26 +175,32 @@ def _broader_industry_fit(q: str, record_industries: list[str]) -> float:
 
 
 def _size_fit(query: ContextQuery, record: Any) -> float:
-    if query.employee_band or query.employee_count:
-        rec_count = getattr(record, "organization_employee_count", None)
-        rec_band = getattr(record, "organization_employee_band", "") or (employee_count_to_band(rec_count) or "")
-        q_band = query.employee_band or (employee_count_to_band(query.employee_count) or "")
-        if q_band and rec_band:
-            bands = ["<10", "10-50", "50-200", "200-1000", "1000-10000", "10000+"]
-            if q_band in bands and rec_band in bands:
-                dist = abs(bands.index(q_band) - bands.index(rec_band))
-                if dist == 0:
-                    return 1.0
-                if dist == 1:
-                    return 0.6
-                if dist == 2:
-                    return 0.3
-    return 0.0  # unknown query size → no penalty, no boost
+    """Size-band fit. Rewards exact/adjacent matches, neutral (0.5) when the
+    record has no size data so the factor promotes as coverage rises."""
+    if not (query.employee_band or query.employee_count):
+        return 0.0
+    rec_count = getattr(record, "organization_employee_count", None)
+    rec_band = getattr(record, "organization_employee_band", "") or (employee_count_to_band(rec_count) or "")
+    q_band = query.employee_band or (employee_count_to_band(query.employee_count) or "")
+    if not rec_band:
+        return 0.5  # record lacks size data → neutral, not a penalty
+    bands = ["<10", "10-50", "50-200", "200-1000", "1000-10000", "10000+"]
+    if q_band in bands and rec_band in bands:
+        dist = abs(bands.index(q_band) - bands.index(rec_band))
+        if dist == 0:
+            return 1.0
+        if dist == 1:
+            return 0.6
+        if dist == 2:
+            return 0.3
+    return 0.0
 
 
 def _geo_fit(q: str, record_geographies: list[str]) -> float:
-    if not q or not record_geographies:
+    if not q:
         return 0.0
+    if not record_geographies:
+        return 0.5  # record lacks geography → neutral
     qk = q.strip().lower()
     for g in record_geographies:
         gk = str(g).strip().lower()
@@ -200,8 +210,10 @@ def _geo_fit(q: str, record_geographies: list[str]) -> float:
 
 
 def _regulatory_fit(q: str, record_industry: Optional[str]) -> float:
-    if not q or not record_industry:
+    if not q:
         return 0.0
+    if not record_industry:
+        return 0.5  # cannot assess → neutral
     rec_reg = regulatory_intensity_for(record_industry)
     return 1.0 if rec_reg == q else 0.0
 
