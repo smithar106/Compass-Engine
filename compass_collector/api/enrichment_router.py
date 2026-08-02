@@ -78,3 +78,93 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
         return {"record_id": req.record_id, "updated": len(applied), "fields": applied}
     finally:
         db.close()
+
+
+@router.get("/coverage")
+def evidence_coverage():
+    """Per-field organization coverage across the evidence graph.
+
+    Used to benchmark the organization/industry matching upgrade and to track
+    how enrichment is closing the sparse-field gaps (employee size, geography,
+    operational function, workflow).
+    """
+    from collections import Counter
+
+    db = get_session()
+    try:
+        records = db.query(InterventionRecord).all()
+    finally:
+        db.close()
+
+    total = len(records)
+
+    def _has(value) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str) and not value.strip():
+            return False
+        if isinstance(value, list) and not value:
+            return False
+        if isinstance(value, dict) and not value:
+            return False
+        return True
+
+    industry_raw = Counter()
+    canonical_industry = Counter()
+    subsector = Counter()
+    agent_enriched = 0
+    name = emp = emp_band = geo = op_func = workflow = normalized = 0
+
+    for rec in records:
+        if _has(rec.organization_name):
+            name += 1
+        if rec.organization_industry:
+            for ind in rec.organization_industry:
+                if ind:
+                    industry_raw[str(ind)] += 1
+        norm = rec.organization_normalized or {}
+        if norm:
+            normalized += 1
+            pi = (norm.get("primary_industry") or {}).get("value")
+            if pi:
+                canonical_industry[pi] += 1
+            sub = (norm.get("primary_industry") or {}).get("subsector")
+            if sub:
+                subsector[sub] += 1
+        if _has(rec.organization_employee_count):
+            emp += 1
+        if _has(rec.organization_employee_band):
+            emp_band += 1
+        if _has(rec.organization_geography):
+            geo += 1
+        if _has(rec.problem_business_function):
+            op_func += 1
+        comps = rec.intervention_components or {}
+        if isinstance(comps, dict) and _has(comps.get("workflow")):
+            workflow += 1
+        if rec.review_status == "agent_enriched" or (
+            isinstance(comps, dict) and comps.get("source_generation") == "agent_enriched"
+        ):
+            agent_enriched += 1
+
+    def pct(n: int) -> float:
+        return round(100 * n / max(total, 1), 1)
+
+    return {
+        "total_records": total,
+        "coverage": {
+            "organization_name": {"n": name, "pct": pct(name)},
+            "normalized_org": {"n": normalized, "pct": pct(normalized)},
+            "industry_raw_unique": len(industry_raw),
+            "canonical_industry": {"n": sum(canonical_industry.values()), "pct": pct(sum(canonical_industry.values()))},
+            "industry_subsector": {"n": sum(subsector.values()), "pct": pct(sum(subsector.values()))},
+            "employee_count": {"n": emp, "pct": pct(emp)},
+            "employee_band": {"n": emp_band, "pct": pct(emp_band)},
+            "geography": {"n": geo, "pct": pct(geo)},
+            "operational_function": {"n": op_func, "pct": pct(op_func)},
+            "workflow": {"n": workflow, "pct": pct(workflow)},
+        },
+        "agent_enriched_records": agent_enriched,
+        "canonical_industry_top": canonical_industry.most_common(20),
+        "subsector_top": subsector.most_common(20),
+    }
