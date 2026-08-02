@@ -320,6 +320,7 @@ class TestGracefulShutdownSubprocess(unittest.TestCase):
                     **AGENT_ENV,
                     "COMPASS_API_URL": f"http://127.0.0.1:{port}",
                     "AGENT_SLEEP_SECONDS": "3600",  # long sleep; must be interrupted
+                    "AGENT_AUTO_DOWNLOAD_DB": "0",  # never download the 131MB DB in tests
                 }
             )
             proc = subprocess.Popen(
