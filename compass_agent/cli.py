@@ -78,7 +78,8 @@ def _build_enrichment_workflow(settings: Settings, budget):
         log.warning("Enrichment inactive: no valid collector DB (AGENT_CANDIDATE_DB).")
         return None
 
-    store = AgentStore(db_path=settings.state_file or "")
+    # Persistent claim/enrichment store (AGENT_STORE_DB), in-memory otherwise.
+    store = AgentStore(db_path=settings.store_db or "")
     provider = CollectorCandidateProvider(db_path=db_path)
     queue = ClaimQueue(provider=provider, store=store)
     llm = LLMClient(
@@ -153,7 +154,7 @@ def cmd_benchmark(settings: Settings, problems: list[str], dry_run: bool, gold_s
     from compass_agent.benchmark import GOLD_SET, print_benchmark_report, run_benchmark
     from compass_agent.store import AgentStore
 
-    store = AgentStore(db_path=settings.state_file or "")
+    store = AgentStore(db_path=settings.store_db or "")
 
     def reference_extractor(text: str, title: str) -> dict:
         # Deterministic extractor used for --dry-run and tests (no LLM).

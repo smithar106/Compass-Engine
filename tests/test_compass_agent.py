@@ -130,6 +130,18 @@ class TestConfig(unittest.TestCase):
         settings, _ = Settings.from_env({**AGENT_ENV, "AGENT_AUTO_PUBLISH": "true"})
         self.assertTrue(settings.auto_publish)
 
+    def test_store_db_and_budget_state_are_separate(self):
+        env = {
+            **AGENT_ENV,
+            "AGENT_STATE_FILE": "/vol/agent_state.json",
+            "AGENT_STORE_DB": "/vol/agent_store.db",
+        }
+        settings, problems = Settings.from_env(env)
+        self.assertEqual(problems, [])
+        self.assertEqual(settings.state_file, "/vol/agent_state.json")
+        self.assertEqual(settings.store_db, "/vol/agent_store.db")
+        self.assertNotEqual(settings.state_file, settings.store_db)
+
     def test_missing_required_variable(self):
         settings, problems = Settings.from_env({})
         self.assertIn("COMPASS_API_URL is required", problems)
