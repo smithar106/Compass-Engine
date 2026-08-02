@@ -86,6 +86,9 @@ class ContextQuery:
             q.problem_statement = getattr(assessment, "problem_statement", "") or ""
         fields = {}
         if org_profile:
+            # ResolveResult dicts wrap the profile under ``proposed``.
+            if isinstance(org_profile, dict) and org_profile.get("proposed"):
+                org_profile = org_profile["proposed"]
             fields = (org_profile.get("fields") or {}) if isinstance(org_profile, dict) else {}
         q.primary_industry = _field(fields, "primary_industry")
         q.industry_subsector = _field(fields, "industry_subsector")

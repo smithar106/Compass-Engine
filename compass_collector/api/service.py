@@ -1375,7 +1375,7 @@ def _build_recommendations(
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
+def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = None) -> RecommendationResponse:
     from compass_collector.analysis.recommendation import recommend
     from compass_collector.analysis.candidate_retrieval import retrieve_candidates
     from compass_collector.analysis.scoring_ranking import rank_interventions
@@ -1401,7 +1401,7 @@ def run_recommendation(req: InvestigationRequest) -> RecommendationResponse:
     recommendations = _build_recommendations(interventions, why, req)
     overall_conf = engine_result.get("overall_confidence", {})
 
-    candidates = retrieve_candidates(req)
+    candidates = retrieve_candidates(req, org_profile=org_profile)
     scored_interventions, scoring_weights = rank_interventions(candidates, req)
 
     run_id = str(uuid.uuid4())

@@ -131,7 +131,7 @@ def _run_engine(normalization: Dict[str, str], answers: Dict[str, str], organiza
         if not profile.get("company_size"):
             profile["company_size"] = fields.get("employee_band", {}).get("value", "")
     request = InvestigationRequest(**profile)
-    response = run_recommendation(request)
+    response = run_recommendation(request, org_profile=organization)
     return response.model_dump()
 
 

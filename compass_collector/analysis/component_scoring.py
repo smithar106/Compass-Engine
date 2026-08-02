@@ -35,6 +35,39 @@ def _industry_overlap(industries: List[str], target_industry: str) -> float:
     return 0.0
 
 
+def _industry_overlap_canonical(candidate: dict, target_industry: str) -> float:
+    """Industry overlap using the canonical taxonomy.
+
+    Compares canonical industry keys (and subsector) so 'Banking', 'FinTech',
+    and 'Financial Services' all match, instead of raw-string overlap.
+    """
+    if not target_industry:
+        return 0.0
+    from compass_collector.organization.taxonomy import normalize_industry
+
+    t = normalize_industry(str(target_industry))
+    if not t.mapped:
+        return _industry_overlap(candidate.get("organization_industry", []), target_industry)
+
+    candidate_keys: list[str] = []
+    if candidate.get("canonical_industry"):
+        candidate_keys.append(str(candidate["canonical_industry"]))
+    for raw in candidate.get("organization_industry", []) or []:
+        n = normalize_industry(str(raw))
+        if n.mapped and n.canonical not in candidate_keys:
+            candidate_keys.append(n.canonical)
+
+    if not candidate_keys:
+        return 0.0
+    if t.canonical in candidate_keys:
+        # subsector match is stronger than same-broader-industry
+        cand_sub = str(candidate.get("industry_subsector") or "")
+        if t.subsector and cand_sub and t.subsector == cand_sub:
+            return 1.0
+        return 0.8
+    return 0.3
+
+
 def _employee_band_distance(candidate_count: Optional[int], assessment_size: Optional[int]) -> float:
     if candidate_count is None or assessment_size is None:
         return 0.0
@@ -146,7 +179,7 @@ def score_organizational_similarity(candidate: dict, assessment: InvestigationRe
     components.append(org_sim * 0.25)
     total_weight += 0.25
 
-    ind_sim = _industry_overlap(industries, assessment.industry)
+    ind_sim = _industry_overlap_canonical(candidate, assessment.industry)
     components.append(ind_sim * 0.30)
     total_weight += 0.30
 

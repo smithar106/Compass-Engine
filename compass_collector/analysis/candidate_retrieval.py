@@ -34,6 +34,9 @@ def _record_to_dict(rec: InterventionRecord, metrics: list[MetricRecord], simila
         elif m.absolute_change is not None:
             outcome_summaries.append(f"{m.metric_name}: {m.absolute_change:+.0f} {m.unit or ''}")
 
+    org_norm = rec.organization_normalized or {}
+    primary = org_norm.get("primary_industry") or {}
+
     return {
         "id": rec.id,
         "organization": rec.organization_name or "",
@@ -43,6 +46,10 @@ def _record_to_dict(rec: InterventionRecord, metrics: list[MetricRecord], simila
         "organization_geography": rec.organization_geography or [],
         "organization_employee_count": rec.organization_employee_count,
         "organization_employee_band": _employee_count_to_band(rec.organization_employee_count),
+        "organization_normalized": org_norm,
+        "canonical_industry": primary.get("value", ""),
+        "industry_subsector": primary.get("subsector", ""),
+        "broader_industry": primary.get("broader", ""),
         "problem_statement": (rec.problem_statement or "")[:300],
         "problem_business_function": rec.problem_business_function or [],
         "problem_categories": rec.problem_categories or [],
@@ -122,7 +129,22 @@ def _load_duplicate_ids(session) -> set:
 def retrieve_candidates(
     assessment: InvestigationRequest,
     max_candidates: int = 50,
+    org_profile: Optional[dict] = None,
 ) -> list[dict]:
+    """Retrieve comparable implementation candidates.
+
+    Uses the context-aware ten-factor retrieval when an organization profile or
+    industry context is available; falls back to legacy string similarity
+    otherwise. Candidates carry canonical organization fields + the factor
+    breakdown.
+    """
+    from compass_collector.analysis.context_retrieval import (
+        ContextQuery,
+        compute_context_similarity,
+    )
+
+    use_context = bool(org_profile or assessment.industry or assessment.geography or assessment.company_size)
+    context_query = ContextQuery.from_profile(org_profile, assessment) if use_context else None
     employee_count = _parse_company_size(assessment.company_size)
     query = ImplementationQuery(
         workflow=assessment.workflow or assessment.problem_statement,
@@ -148,30 +170,37 @@ def retrieve_candidates(
             has_claim = bool(metrics) or bool(rec.outcome_summaries if hasattr(rec, 'outcome_summaries') else False)
             if not has_claim and not rec.intervention_description:
                 continue
-            similarity = compute_similarity(query, rec, metrics)
-            if similarity["total"] == 0:
+            if context_query is not None:
+                fit = compute_context_similarity(context_query, rec, metrics)
+                total = fit.total
+                components = fit.to_dict()["factors"]
+            else:
+                similarity = compute_similarity(query, rec, metrics)
+                total = similarity["total"]
+                components = similarity["components"]
+            if total == 0:
                 continue
-            scored.append((similarity["total"], rec, metrics))
+            scored.append((total, rec, metrics, components))
 
         scored.sort(key=lambda x: -x[0])
 
         seen_orgs = set()
         candidates = []
-        for sim_score, rec, metrics in scored:
+        for sim_score, rec, metrics, components in scored:
             org = (rec.organization_name or "").lower()
             if org and org in seen_orgs:
                 continue
             seen_orgs.add(org)
-            candidate = _record_to_dict(rec, metrics, {"total": sim_score, "components": similarity["components"]})
+            candidate = _record_to_dict(rec, metrics, {"total": sim_score, "components": components})
             candidates.append(candidate)
             if len(candidates) >= max_candidates:
                 break
 
         if len(candidates) < 5:
-            for sim_score, rec, metrics in scored[len(candidates):]:
+            for sim_score, rec, metrics, components in scored[len(candidates):]:
                 candidate_ids = {c["id"] for c in candidates}
                 if rec.id not in candidate_ids:
-                    candidates.append(_record_to_dict(rec, metrics, {"total": sim_score, "components": {}}))
+                    candidates.append(_record_to_dict(rec, metrics, {"total": sim_score, "components": components}))
                     if len(candidates) >= max_candidates:
                         break
 
