@@ -347,6 +347,49 @@ class TestBenchmark(unittest.TestCase):
         self.assertGreaterEqual(len(store.recent_benchmarks()), 1)
 
 
+class TestHttpPublisher(unittest.TestCase):
+    def test_active_requires_token_and_url(self):
+        from compass_agent.publish import HttpPublisher
+
+        self.assertFalse(HttpPublisher(api_url="", token="", enabled=True).active)
+        self.assertFalse(HttpPublisher(api_url="http://x", token="", enabled=True).active)
+        self.assertFalse(HttpPublisher(api_url="", token="t", enabled=True).active)
+        self.assertTrue(HttpPublisher(api_url="http://x", token="t", enabled=True).active)
+        self.assertFalse(HttpPublisher(api_url="http://x", token="t", enabled=False).active)
+
+    def test_publishes_over_http(self):
+        from unittest.mock import patch
+
+        from compass_agent.publish import HttpPublisher
+
+        publisher = HttpPublisher(api_url="https://engine.test", token="secret", enabled=True)
+        with patch("httpx.post") as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.text = "ok"
+            n = publisher.publish(
+                "rec-1",
+                make_valid_payload(),
+                source_text="headquartered in Canada with 5000 employees",
+            )
+        self.assertEqual(n, 1)
+        args, kwargs = mock_post.call_args
+        self.assertTrue(args[0].startswith("https://engine.test/api/evidence/enrichment"))
+        self.assertEqual(kwargs["headers"]["X-Compass-Agent-Key"], "secret")
+        self.assertEqual(kwargs["json"]["record_id"], "rec-1")
+        self.assertIn("organization_employee_count", kwargs["json"]["fields"])
+
+    def test_http_failure_returns_zero(self):
+        from unittest.mock import patch
+
+        from compass_agent.publish import HttpPublisher
+
+        publisher = HttpPublisher(api_url="https://engine.test", token="secret", enabled=True)
+        with patch("httpx.post") as mock_post:
+            mock_post.return_value.status_code = 500
+            mock_post.return_value.text = "boom"
+            self.assertEqual(publisher.publish("rec-1", make_valid_payload()), 0)
+
+
 class TestCliBenchmark(unittest.TestCase):
     def test_dry_run_exits_zero(self):
         from unittest.mock import patch

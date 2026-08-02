@@ -47,6 +47,7 @@ class Settings:
     state_file: str = ""
     candidate_db: str = ""
     auto_download_db: bool = True
+    sync_token: str = ""
     log_level: str = "INFO"
 
     @classmethod
@@ -95,6 +96,7 @@ class Settings:
             state_file=str(env.get("AGENT_STATE_FILE") or "").strip(),
             candidate_db=str(env.get("AGENT_CANDIDATE_DB") or "").strip(),
             auto_download_db=_parse_bool(env.get("AGENT_AUTO_DOWNLOAD_DB"), True),
+            sync_token=str(env.get("AGENT_SYNC_TOKEN") or "").strip(),
             log_level=str(env.get("AGENT_LOG_LEVEL") or "INFO").strip().upper(),
         )
         problems.extend(settings.validate())

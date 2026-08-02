@@ -65,7 +65,7 @@ def _build_enrichment_workflow(settings: Settings, budget):
     from compass_agent.db import ensure_collector_db
     from compass_agent.enrich import EnrichmentPipeline
     from compass_agent.llm import LLMClient
-    from compass_agent.publish import NoopPublisher, Publisher
+    from compass_agent.publish import HttpPublisher, NoopPublisher, Publisher
     from compass_agent.store import AgentStore
     from compass_agent.workflow import EnrichmentWorkflow
 
@@ -86,11 +86,20 @@ def _build_enrichment_workflow(settings: Settings, budget):
         provider=settings.llm_provider,
         concurrency=settings.llm_concurrency,
     )
-    publisher = (
-        Publisher(db_path=db_path, enabled=settings.auto_publish)
-        if db_path
-        else NoopPublisher()
-    )
+    # Publish path: HTTP sync to the engine when configured, otherwise local
+    # SQLite write, otherwise no-op (results still recorded in the store).
+    if settings.auto_publish and settings.sync_token:
+        publisher = HttpPublisher(
+            api_url=settings.compass_api_url,
+            token=settings.sync_token,
+            enabled=True,
+        )
+        log.info("Enrichment publishing via engine HTTP sync (%s/api/evidence/enrichment)", settings.compass_api_url)
+    elif settings.auto_publish:
+        publisher = Publisher(db_path=db_path, enabled=True)
+        log.info("Enrichment publishing locally to %s", db_path)
+    else:
+        publisher = NoopPublisher()
     workflow = EnrichmentWorkflow(
         queue=queue,
         pipeline=EnrichmentPipeline(llm),
