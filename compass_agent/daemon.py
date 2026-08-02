@@ -174,6 +174,8 @@ class Daemon:
         initial_backoff: float = DEFAULT_INITIAL_BACKOFF_SECONDS,
         max_backoff: float = DEFAULT_MAX_BACKOFF_SECONDS,
         logger: Optional[logging.Logger] = None,
+        enrichment=None,
+        budget: Optional[BudgetTracker] = None,
     ) -> None:
         self.settings = settings
         self.health_check = health_check
@@ -181,7 +183,8 @@ class Daemon:
         self.initial_backoff = initial_backoff
         self.max_backoff = max_backoff
         self.logger = logger or log
-        self.budget = BudgetTracker(
+        self.enrichment = enrichment
+        self.budget = budget or BudgetTracker(
             max_daily=settings.max_daily_llm_usd,
             max_total=settings.max_total_llm_usd,
             state_file=settings.state_file,
@@ -218,11 +221,7 @@ class Daemon:
 
     # -- work --------------------------------------------------------------
     def _do_work_cycle(self, cycle: int) -> int:
-        """One unit of work. Budget-gated; returns documents processed.
-
-        Placeholder for the enrichment pipeline: for now the cycle only
-        confirms the budget is available and logs. Real work drops in here.
-        """
+        """One unit of work. Budget-gated; returns documents processed."""
         if not self.budget.can_work():
             self.logger.warning(
                 "Budget exhausted — daily spent $%.2f / %.2f, total $%.2f / %.2f. "
@@ -233,9 +232,34 @@ class Daemon:
                 self.settings.max_total_llm_usd,
             )
             return 0
+
+        if self.enrichment is not None:
+            report = self.enrichment.run_cycle(
+                cycle=cycle,
+                max_docs=self.settings.max_docs_per_cycle,
+            )
+            self.logger.info(
+                "Cycle %d: enrichment candidates=%d valid=%d invalid=%d skipped=%d "
+                "published=%d cost=$%.4f (daily $%.2f / %.2f, total $%.2f / %.2f).",
+                cycle,
+                report.candidates,
+                report.valid,
+                report.invalid,
+                report.skipped,
+                report.published,
+                report.cost,
+                self.budget.daily_spent,
+                self.settings.max_daily_llm_usd,
+                self.budget.total_spent,
+                self.settings.max_total_llm_usd,
+            )
+            for failure in report.failures[:5]:
+                self.logger.warning("Cycle %d: %s", cycle, failure)
+            return report.processed
+
         self.logger.info(
             "Cycle %d: budget OK (daily $%.2f / %.2f, total $%.2f / %.2f). "
-            "No enrichment work scheduled yet.",
+            "No enrichment pipeline configured — idle.",
             cycle,
             self.budget.daily_spent,
             self.settings.max_daily_llm_usd,
