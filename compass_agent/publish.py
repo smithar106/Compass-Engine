@@ -91,6 +91,11 @@ class Publisher:
             return 0
         try:
             conn = sqlite3.connect(self.db_path)
+            # WAL lets the engine read the shared DB without writer lockouts.
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.Error:
+                pass
         except sqlite3.Error as exc:
             log.warning("Cannot open collector DB for publish: %s", exc)
             return 0
