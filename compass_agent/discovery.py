@@ -13,6 +13,7 @@ accepted / rejected / cost) are updated after each candidate.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -81,7 +82,27 @@ class NullSearch(SearchBackend):
 
 class OpenCLISearch(SearchBackend):
     """Discovery via the engine's OpenCLI bridge (HN, Reddit, Dev.to,
-    Google Scholar, ArXiv commands). Graceful no-op if opencli is unavailable."""
+    Google Scholar, ArXiv commands). Graceful no-op if opencli is unavailable.
+
+    On first use it resolves opencli via ``ensure_opencli`` — the system binary
+    when present, otherwise a Node+OpenCLI bootstrap into the agent volume.
+    """
+
+    _opencli: Optional[str] = None
+
+    @classmethod
+    def _resolve_opencli(cls) -> str:
+        if cls._opencli is None:
+            try:
+                from compass_agent.opencli_bootstrap import ensure_opencli
+
+                cls._opencli = ensure_opencli()
+                if not cls._opencli:
+                    log.warning("opencli unavailable — Discovery falls back to other backends")
+            except Exception as exc:
+                cls._opencli = ""
+                log.warning("opencli resolve error: %s", exc)
+        return cls._opencli
 
     def build_queries(self, campaign: Campaign) -> list[str]:
         wf = campaign.workflow.replace("_", " ")
@@ -97,15 +118,22 @@ class OpenCLISearch(SearchBackend):
         return cmds
 
     def search(self, query: str, max_results: int = 10) -> list[dict]:
-        try:
-            from compass_collector.scraper.opencli_bridge import OpenCLIBridge
+        import subprocess
 
-            bridge = OpenCLIBridge()
-        except Exception as exc:
-            log.warning("OpenCLI unavailable: %s", exc)
+        exe = self._resolve_opencli()
+        if not exe:
             return []
         try:
-            results = bridge.run_opencli(query)
+            result = subprocess.run(
+                f"{exe} {query} -f json",
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+            if result.returncode != 0:
+                return []
+            results = json.loads(result.stdout) if result.stdout.strip() else []
         except Exception as exc:
             log.warning("opencli command failed %r: %s", query, exc)
             return []
