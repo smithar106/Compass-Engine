@@ -17,7 +17,7 @@ class CandidateProvider:
     """Base class: yields candidates as dicts with keys
     ``id``, ``record_id``, ``doc_id``, ``source``, ``text``, ``title``."""
 
-    def list_candidates(self, limit: int) -> "list[dict]":
+    def list_candidates(self, limit: int, exclude_ids: Optional[set] = None) -> "list[dict]":
         raise NotImplementedError
 
 
@@ -33,7 +33,7 @@ class CollectorCandidateProvider(CandidateProvider):
         self.db_path = db_path
         self.min_text_chars = min_text_chars
 
-    def list_candidates(self, limit: int) -> "list[dict]":
+    def list_candidates(self, limit: int, exclude_ids: Optional[set] = None) -> "list[dict]":
         try:
             conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
         except (sqlite3.Error, OSError):
@@ -44,7 +44,16 @@ class CollectorCandidateProvider(CandidateProvider):
                 conn.execute("SELECT COUNT(*) FROM intervention_records")
             except sqlite3.Error:
                 return []
-            rows = conn.execute(
+
+            exclude_ids = exclude_ids or set()
+            params: list = []
+            where_extra = ""
+            if exclude_ids:
+                placeholders = ", ".join("?" for _ in exclude_ids)
+                where_extra = f" AND r.id NOT IN ({placeholders})"
+                params.extend(sorted(exclude_ids))
+
+            sql = (
                 """
                 SELECT r.id AS record_id,
                        r.document_id AS doc_id,
@@ -64,11 +73,12 @@ class CollectorCandidateProvider(CandidateProvider):
                       )
                   AND (COALESCE(r.implementation_field_provenance,'[]') = '[]'
                        OR r.implementation_field_provenance IS NULL)
-                ORDER BY r.created_at ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+                """
+                + where_extra
+                + " ORDER BY r.created_at ASC LIMIT ?"
+            )
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
 
             candidates = []
             for r in rows:
@@ -99,8 +109,10 @@ class ClaimQueue:
         self.owner = owner
 
     def next_batch(self, limit: int) -> "list[dict]":
-        # Fetch headroom so already-claimed candidates don't starve the batch.
-        candidates = self.provider.list_candidates(limit * 3)
+        # Exclude already-claimed candidates in SQL so we don't stall scanning
+        # the same oldest records every cycle.
+        claimed = self.store.claimed_ids()
+        candidates = self.provider.list_candidates(limit, exclude_ids=claimed)
         acquired = []
         for c in candidates:
             if len(acquired) >= limit:

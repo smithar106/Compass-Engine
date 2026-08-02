@@ -66,8 +66,9 @@ class FakeProvider:
     def __init__(self, candidates):
         self.candidates = candidates
 
-    def list_candidates(self, limit):
-        return self.candidates[:limit]
+    def list_candidates(self, limit, exclude_ids=None):
+        exclude_ids = exclude_ids or set()
+        return [c for c in self.candidates if c["id"] not in exclude_ids][:limit]
 
 
 class TestAgentStore(unittest.TestCase):
@@ -146,6 +147,19 @@ class TestClaimQueue(unittest.TestCase):
         second = queue.next_batch(1)
         self.assertEqual([c["id"] for c in second], ["b"])
 
+    def test_next_batch_does_not_stall_when_all_oldest_claimed(self):
+        """Regression: provider must exclude claimed records so a fully-claimed
+        oldest window doesn't block new work every cycle."""
+        store = AgentStore()
+        candidates = [{"id": f"c{i}", "record_id": f"c{i}", "text": "x" * 200, "title": ""} for i in range(5)]
+        provider = FakeProvider(candidates)
+        queue = ClaimQueue(provider, store)
+        first = queue.next_batch(5)  # claim all 5
+        self.assertEqual(len(first), 5)
+        # after claiming all, next_batch must not loop/stall — returns empty promptly
+        second = queue.next_batch(5)
+        self.assertEqual(second, [])
+
 
 class TestCollectorCandidateProvider(unittest.TestCase):
     def _make_db(self, tmpdir):
@@ -194,6 +208,14 @@ class TestCollectorCandidateProvider(unittest.TestCase):
     def test_missing_db_returns_empty(self):
         provider = CollectorCandidateProvider("/nonexistent/path.db")
         self.assertEqual(provider.list_candidates(5), [])
+
+    def test_excludes_claimed_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._make_db(tmp)
+            provider = CollectorCandidateProvider(path)
+            self.assertEqual([c["id"] for c in provider.list_candidates(10)], ["r1"])
+            # excluding r1 leaves nothing
+            self.assertEqual(provider.list_candidates(10, exclude_ids={"r1"}), [])
 
 
 class TestPipeline(unittest.TestCase):
