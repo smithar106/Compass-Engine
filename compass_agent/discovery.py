@@ -79,6 +79,109 @@ class NullSearch(SearchBackend):
         return []
 
 
+class OpenCLISearch(SearchBackend):
+    """Discovery via the engine's OpenCLI bridge (HN, Reddit, Dev.to,
+    Google Scholar, ArXiv commands). Graceful no-op if opencli is unavailable."""
+
+    def build_queries(self, campaign: Campaign) -> list[str]:
+        wf = campaign.workflow.replace("_", " ")
+        source_types = set(campaign.source_types)
+        cmds: list[str] = []
+        if source_types & {"government_audited", "financial_disclosure", "peer_reviewed", "academic"}:
+            cmds.append(f'google-scholar search "{wf} implementation outcomes" --limit 8')
+        cmds.append(f'hackernews search "{wf} case study" --limit 10')
+        cmds.append(f'reddit search "{wf} automation results" --limit 10')
+        cmds.append(f'devto search "{wf}" --limit 10')
+        if source_types & {"academic", "peer_reviewed"}:
+            cmds.append(f'arxiv search "{wf} implementation" --limit 8')
+        return cmds
+
+    def search(self, query: str, max_results: int = 10) -> list[dict]:
+        try:
+            from compass_collector.scraper.opencli_bridge import OpenCLIBridge
+
+            bridge = OpenCLIBridge()
+        except Exception as exc:
+            log.warning("OpenCLI unavailable: %s", exc)
+            return []
+        try:
+            results = bridge.run_opencli(query)
+        except Exception as exc:
+            log.warning("opencli command failed %r: %s", query, exc)
+            return []
+        out = []
+        for item in (results or [])[:max_results]:
+            url = (item.get("url") or item.get("link") or "").strip()
+            title = (item.get("title") or item.get("name") or item.get("text") or "").strip()
+            if url:
+                out.append({"url": url, "title": title, "source_type": "opencli"})
+        return out
+
+
+class CuratedSeedSearch(SearchBackend):
+    """Curated gold sources (evidence_seeds.yaml) + vendor landings
+    (sources.yaml), filtered by relevance to the campaign workflow."""
+
+    def build_queries(self, campaign: Campaign) -> list[str]:
+        return [campaign.workflow.replace("_", " ")]
+
+    def _load_seeds(self) -> list[dict]:
+        try:
+            from pathlib import Path
+
+            import yaml
+
+            base = Path(__file__).resolve().parent.parent.parent
+            seeds: list[dict] = []
+            for rel in ("compass_collector/config/evidence_seeds.yaml", "compass_collector/config/sources.yaml"):
+                path = base / rel
+                if not path.exists():
+                    continue
+                data = yaml.safe_load(path.read_text()) or {}
+                if rel.endswith("evidence_seeds.yaml"):
+                    for campaign_cfg in (data.get("campaigns") or {}).values():
+                        for u in campaign_cfg.get("urls", []):
+                            seeds.append({"url": u.get("url", ""), "title": u.get("title", ""), "source_type": "seed"})
+                else:
+                    for src in (data.get("sources") or {}).values():
+                        for landing in src.get("known_landings", []):
+                            seeds.append({"url": landing, "title": src.get("root_domain", landing), "source_type": "vendor_landing"})
+            return [s for s in seeds if s.get("url")]
+        except Exception as exc:
+            log.warning("seed load failed: %s", exc)
+            return []
+
+    def search(self, query: str, max_results: int = 10) -> list[dict]:
+        keywords = set(query.lower().replace("_", " ").split())
+        out = []
+        for s in self._load_seeds():
+            hay = f"{s.get('title', '')} {s.get('url', '')}".lower()
+            if keywords and not any(k in hay for k in keywords):
+                continue
+            out.append(s)
+            if len(out) >= max_results:
+                break
+        return out
+
+
+class ArxivSearch(SearchBackend):
+    """ArXiv API search via the engine's ArxivScraper."""
+
+    def search(self, query: str, max_results: int = 10) -> list[dict]:
+        try:
+            from compass_collector.scraper.sources.arxiv_scraper import ArxivScraper
+
+            results = ArxivScraper().search(query, max_results=max_results)
+            return [
+                {"url": r.get("url", ""), "title": r.get("title", ""), "source_type": "arxiv"}
+                for r in results
+                if r.get("url")
+            ]
+        except Exception as exc:
+            log.warning("arxiv search failed for %r: %s", query, exc)
+            return []
+
+
 # ── Fetchers ─────────────────────────────────────────────────────────────
 
 class Fetcher:
@@ -146,29 +249,41 @@ def build_queries(workflow: str, source_types: list[str]) -> list[str]:
 
 
 class SourcePlanner:
-    """Turns a campaign into a ranked list of source candidates."""
+    """Turns a campaign into a ranked list of source candidates using every
+    available discovery backend (OpenCLI, DuckDuckGo, curated seeds, arXiv)."""
 
-    def __init__(self, search: Optional[SearchBackend] = None, max_per_query: int = 8) -> None:
-        self.search = search or NullSearch()
+    def __init__(self, backends: Optional[list] = None, max_per_query: int = 8) -> None:
+        self.backends = backends or [DuckDuckGoSearch()]
         self.max_per_query = max_per_query
 
     def plan(self, campaign: Campaign, max_sources: int = 20) -> list[dict]:
-        queries = build_queries(campaign.workflow, campaign.source_types)
         candidates: dict[str, dict] = {}
-        for q in queries:
-            for result in self.search.search(q, max_results=self.max_per_query):
-                url = (result.get("url") or "").strip()
-                if not url:
-                    continue
-                candidates.setdefault(
-                    url,
-                    {
-                        "url": url,
-                        "title": (result.get("title") or "").strip(),
-                        "source_type": "search",
-                        "query": q,
-                    },
-                )
+        for backend in self.backends:
+            if hasattr(backend, "build_queries"):
+                queries = backend.build_queries(campaign)
+            else:
+                queries = build_queries(campaign.workflow, campaign.source_types)
+            for q in queries:
+                try:
+                    results = backend.search(q, max_results=self.max_per_query)
+                except Exception as exc:
+                    log.warning("backend search failed: %s", exc)
+                    results = []
+                for result in results:
+                    url = (result.get("url") or "").strip()
+                    if not url or not url.startswith(("http://", "https://")):
+                        continue
+                    candidates.setdefault(
+                        url,
+                        {
+                            "url": url,
+                            "title": (result.get("title") or "").strip(),
+                            "source_type": result.get("source_type", "search"),
+                            "query": q,
+                        },
+                    )
+                    if len(candidates) >= max_sources:
+                        break
                 if len(candidates) >= max_sources:
                     break
             if len(candidates) >= max_sources:

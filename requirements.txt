@@ -12,3 +12,4 @@ weasyprint
 neo4j
 crawl4ai
 docling
+feedparser

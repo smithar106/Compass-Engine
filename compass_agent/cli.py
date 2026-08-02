@@ -129,10 +129,13 @@ def cmd_status(settings: Settings, problems: list[str]) -> int:
 def _build_discovery(settings: Settings, store, collector_db: str):
     """Build the Discovery Mode pipeline, or None when it cannot run."""
     from compass_agent.discovery import (
+        ArxivSearch,
+        CuratedSeedSearch,
         DiscoveryPipeline,
         DuckDuckGoSearch,
         HttpFetcher,
         IngestPublisher,
+        OpenCLISearch,
         SourcePlanner,
     )
     from compass_agent.llm import LLMClient
@@ -148,7 +151,10 @@ def _build_discovery(settings: Settings, store, collector_db: str):
         concurrency=1,
     )
     return DiscoveryPipeline(
-        planner=SourcePlanner(search=DuckDuckGoSearch(), max_per_query=8),
+        planner=SourcePlanner(
+            backends=[OpenCLISearch(), DuckDuckGoSearch(), CuratedSeedSearch(), ArxivSearch()],
+            max_per_query=8,
+        ),
         fetcher=HttpFetcher(),
         llm=llm,
         ingest=IngestPublisher(

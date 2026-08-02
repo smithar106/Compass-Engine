@@ -157,7 +157,7 @@ class TestDiscovery(unittest.TestCase):
         store = AgentStore()
         campaign = Campaign(workflow="invoice_processing", business_function="finance")
         pipeline = DiscoveryPipeline(
-            planner=SourcePlanner(search=StubSearch(), max_per_query=2),
+            planner=SourcePlanner(backends=[StubSearch()], max_per_query=2),
             fetcher=StubFetcher(text="A long case study text about invoice processing automation. " * 10),
             llm=FakeLLM(),
             ingest=StubIngest(accepted=True, rich=True),
@@ -176,7 +176,7 @@ class TestDiscovery(unittest.TestCase):
 
         campaign = Campaign(workflow="ticketing", business_function="support")
         pipeline = DiscoveryPipeline(
-            planner=SourcePlanner(search=StubSearch()),
+            planner=SourcePlanner(backends=[StubSearch()]),
             fetcher=StubFetcher(text="A long source text about ticketing. " * 10),
             llm=FakeLLM(),
             ingest=StubIngest(accepted=False),
@@ -192,7 +192,7 @@ class TestDiscovery(unittest.TestCase):
 
         campaign = Campaign(workflow="ticketing", business_function="support")
         pipeline = DiscoveryPipeline(
-            planner=SourcePlanner(search=StubSearch()),
+            planner=SourcePlanner(backends=[StubSearch()]),
             fetcher=StubFetcher(text="A long source text about ticketing. " * 10),
             llm=FakeLLM(),
             ingest=StubIngest(),
