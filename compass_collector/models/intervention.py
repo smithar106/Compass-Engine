@@ -21,6 +21,10 @@ class InterventionRecord(Base):
     organization_stage = Column(String, nullable=True)
     organization_type = Column(String, nullable=True)
 
+    # Canonical organization normalization (Phase 3 backfill). JSON of
+    # {field: {raw, value, source, method, confidence, version}}.
+    organization_normalized = Column(JSON, default=dict)
+
     problem_business_function = Column(JSON, default=list)
     problem_statement = Column(Text, default="")
     problem_categories = Column(JSON, default=list)

@@ -32,6 +32,7 @@ from compass_collector.config.settings import DATA_DIR, DATABASE_URL
 from compass_collector.implementation.router import router as implementation_router
 from compass_collector.api.analyze_router import router as analyze_router
 from compass_collector.api.walkthrough_router import router as walkthrough_router
+from compass_collector.api.organization_router import router as organization_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compass-engine")
@@ -45,6 +46,7 @@ app = FastAPI(
 app.include_router(implementation_router)
 app.include_router(analyze_router)
 app.include_router(walkthrough_router)
+app.include_router(organization_router)
 
 _metadata_cache = None
 

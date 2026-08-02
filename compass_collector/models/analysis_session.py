@@ -14,6 +14,7 @@ class AnalysisSession(Base):
     inferred = Column(JSON, default=list)
     questions = Column(JSON, default=list)
     answers = Column(JSON, default=dict)
+    organization = Column(JSON, nullable=True)
     evidence_ids = Column(JSON, default=list)
     retrieval_snapshots = Column(JSON, default=list)
     decision = Column(JSON, nullable=True)

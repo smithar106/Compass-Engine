@@ -35,10 +35,14 @@ SCORING_VERSION = "1.0.0"
 class AnalyzeCreateRequest(BaseModel):
     problem_text: str
     attachments: List[str] = Field(default_factory=list)
+    organization_name: str = ""
+    organization_domain: str = ""
+    organization_industry: str = ""
 
 
 class ConfirmRequest(BaseModel):
     edits: Dict[str, str] = Field(default_factory=dict)
+    organization: Optional[Dict[str, Any]] = None
 
 
 class AnswersRequest(BaseModel):
@@ -59,6 +63,7 @@ def _session_to_dict(session: AnalysisSession) -> Dict[str, Any]:
         "inferred": session.inferred or [],
         "questions": session.questions or [],
         "answers": session.answers or {},
+        "organization": session.organization or None,
         "evidence_ids": session.evidence_ids or [],
         "retrieval_snapshots": session.retrieval_snapshots or [],
         "status": session.status,
@@ -111,11 +116,20 @@ def _engine_gaps(decision: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
     return top.get("information_gaps") or decision.get("information_gaps") or []
 
 
-def _run_engine(normalization: Dict[str, str], answers: Dict[str, str]) -> Dict[str, Any]:
+def _run_engine(normalization: Dict[str, str], answers: Dict[str, str], organization: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run the live retrieval + scoring pipeline and return the engine result."""
     from compass_collector.api.service import run_recommendation
 
     profile = build_profile_from_analyze(normalization, answers)
+    if organization:
+        org = organization.get("proposed") or organization
+        fields = org.get("fields", {}) or {}
+        if not profile.get("industry"):
+            profile["industry"] = fields.get("primary_industry", {}).get("value", "")
+        if not profile.get("geography"):
+            profile["geography"] = fields.get("headquarters_country", {}).get("value", "")
+        if not profile.get("company_size"):
+            profile["company_size"] = fields.get("employee_band", {}).get("value", "")
     request = InvestigationRequest(**profile)
     response = run_recommendation(request)
     return response.model_dump()
@@ -136,7 +150,11 @@ def _conf_status(decision: Optional[Dict[str, Any]]) -> str:
 
 def _run_decision(session: AnalysisSession) -> Dict[str, Any]:
     """Run live retrieval + scoring and record the evidence snapshot."""
-    decision = _run_engine(session.normalization or {}, session.answers or {})
+    decision = _run_engine(
+        session.normalization or {},
+        session.answers or {},
+        organization=session.organization,
+    )
     session.decision = decision
     session.evidence_ids = extract_evidence_ids(decision)
     session.retrieval_snapshots = (session.retrieval_snapshots or []) + [
@@ -180,6 +198,25 @@ def create_analysis(req: AnalyzeCreateRequest):
         scoring_version=SCORING_VERSION,
         engine_version=ENGINE_VERSION,
     )
+    # Phase 5: resolve the organization early in the Analyze flow.
+    org_name = (req.organization_name or "").strip()
+    org_domain = (req.organization_domain or "").strip()
+    org_industry = (req.organization_industry or "").strip()
+    if org_name or org_domain or org_industry:
+        from compass_collector.organization.profile import resolve_organization
+
+        db = get_session()
+        try:
+            resolved = resolve_organization(
+                company_name=org_name,
+                company_domain=org_domain,
+                industry=org_industry,
+                session=db,
+            )
+        finally:
+            db.close()
+        session.organization = resolved.to_dict()
+
     _save(session)
     try:
         _run_decision(session)
@@ -207,6 +244,8 @@ def confirm_analysis(analysis_id: str, req: ConfirmRequest):
         if key in edits:
             base[key] = edits[key]
     session.normalization = base
+    if req.organization is not None:
+        session.organization = req.organization
     session.status = "awaiting_answers"
     _save(session)
     try:
