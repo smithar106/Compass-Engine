@@ -129,7 +129,6 @@ def cmd_status(settings: Settings, problems: list[str]) -> int:
 def _build_discovery(settings: Settings, store, collector_db: str):
     """Build the Discovery Mode pipeline, or None when it cannot run."""
     from compass_agent.discovery import (
-        ArxivSearch,
         CuratedSeedSearch,
         DiscoveryPipeline,
         DuckDuckGoSearch,
@@ -152,7 +151,10 @@ def _build_discovery(settings: Settings, store, collector_db: str):
     )
     return DiscoveryPipeline(
         planner=SourcePlanner(
-            backends=[OpenCLISearch(), DuckDuckGoSearch(), CuratedSeedSearch(), ArxivSearch()],
+            # priority order: general web + curated vendor seeds first (they find
+            # evidence-driven business ROI case studies); OpenCLI fills with
+            # community/academic results (arxiv only for academic gaps)
+            backends=[DuckDuckGoSearch(), CuratedSeedSearch(), OpenCLISearch()],
             max_per_query=8,
         ),
         fetcher=HttpFetcher(),

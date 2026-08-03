@@ -108,11 +108,12 @@ class OpenCLISearch(SearchBackend):
         wf = campaign.workflow.replace("_", " ")
         source_types = set(campaign.source_types)
         cmds: list[str] = []
-        # arxiv works headlessly and returns relevant business papers when framed
-        # around business process / ROI (e.g. RPA viability frameworks).
-        cmds.append(f'arxiv search "business process automation ROI implementation" --limit 8')
+        # arxiv is headless and can surface relevant business frameworks, but it
+        # rarely describes a named org implementation — only use it when the
+        # campaign explicitly needs academic/peer-reviewed evidence.
         if source_types & {"academic", "peer_reviewed"}:
             cmds.append(f'arxiv search "{wf} evaluation framework business" --limit 6')
+            cmds.append('arxiv search "business process automation ROI implementation" --limit 6')
         # community adapters are public and cheap; graceful if they return nothing
         cmds.append(f'hackernews search "{wf} ROI" --limit 10')
         cmds.append(f'reddit search "{wf} automation results" --limit 10')
@@ -291,15 +292,23 @@ def build_queries(workflow: str, source_types: list[str]) -> list[str]:
 
 class SourcePlanner:
     """Turns a campaign into a ranked list of source candidates using every
-    available discovery backend (OpenCLI, DuckDuckGo, curated seeds, arXiv)."""
+    available discovery backend (DuckDuckGo, curated seeds, OpenCLI, arXiv).
+
+    Backends are consulted in priority order and each is capped so a single
+    backend (e.g. arxiv) cannot monopolize the budget with low-value results.
+    """
 
     def __init__(self, backends: Optional[list] = None, max_per_query: int = 8) -> None:
-        self.backends = backends or [DuckDuckGoSearch()]
+        self.backends = backends or [DuckDuckGoSearch(), CuratedSeedSearch(), OpenCLISearch(), ArxivSearch()]
         self.max_per_query = max_per_query
 
     def plan(self, campaign: Campaign, max_sources: int = 20) -> list[dict]:
         candidates: dict[str, dict] = {}
+        per_backend = max(1, max_sources // max(len(self.backends), 1)) if len(self.backends) > 1 else max_sources
         for backend in self.backends:
+            if len(candidates) >= max_sources:
+                break
+            added = 0
             if hasattr(backend, "build_queries"):
                 queries = backend.build_queries(campaign)
             else:
@@ -314,21 +323,18 @@ class SourcePlanner:
                     url = (result.get("url") or "").strip()
                     if not url or not url.startswith(("http://", "https://")):
                         continue
-                    candidates.setdefault(
-                        url,
-                        {
+                    if url not in candidates:
+                        candidates[url] = {
                             "url": url,
                             "title": (result.get("title") or "").strip(),
                             "source_type": result.get("source_type", "search"),
                             "query": q,
-                        },
-                    )
-                    if len(candidates) >= max_sources:
+                        }
+                        added += 1
+                    if added >= per_backend or len(candidates) >= max_sources:
                         break
-                if len(candidates) >= max_sources:
+                if added >= per_backend or len(candidates) >= max_sources:
                     break
-            if len(candidates) >= max_sources:
-                break
         return list(candidates.values())[:max_sources]
 
 
