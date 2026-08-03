@@ -222,7 +222,7 @@ class LLMClient:
             input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
             output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
             cost = self._compute_cost(input_tokens, output_tokens)
-            parsed = self._parse_json(content)
+            parsed = self._parse_json_maybe_list(content)
             items = parsed if isinstance(parsed, list) else parsed.get("implementations", [])
             if not isinstance(items, list):
                 return []
@@ -281,6 +281,17 @@ class LLMClient:
         if not isinstance(parsed, dict):
             raise ValueError("LLM response was not a JSON object")
         return parsed
+
+    @staticmethod
+    def _parse_json_maybe_list(content: str):
+        """Parse a JSON object OR array (multi-extraction returns an array)."""
+        text = content.strip()
+        if text.startswith("```"):
+            parts = text.split("```")
+            text = parts[1] if len(parts) > 1 else parts[0]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
 
     @property
     def spent(self) -> float:

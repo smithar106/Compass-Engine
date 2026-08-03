@@ -109,6 +109,19 @@ class TestLLMClient(unittest.TestCase):
         llm = LLMClient(api_key="", provider="deepseek")
         self.assertEqual(llm.estimate_cost("text"), 0.0)
 
+    def test_parse_json_maybe_list_accepts_array(self):
+        llm = LLMClient(api_key="k", provider="deepseek")
+        parsed = llm._parse_json_maybe_list('[{"organization_name": "A"}, {"organization_name": "B"}]')
+        self.assertIsInstance(parsed, list)
+        self.assertEqual(len(parsed), 2)
+        parsed_obj = llm._parse_json_maybe_list('{"implementations": [{"organization_name": "A"}]}')
+        self.assertIsInstance(parsed_obj, dict)
+
+    def test_parse_json_maybe_list_strips_code_fence(self):
+        llm = LLMClient(api_key="k", provider="deepseek")
+        parsed = llm._parse_json_maybe_list('```json\n[{"organization_name": "A"}]\n```')
+        self.assertIsInstance(parsed, list)
+
 
 class TestValidate(unittest.TestCase):
     def test_valid_payload(self):
