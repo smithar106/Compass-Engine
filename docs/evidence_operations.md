@@ -1,4 +1,4 @@
-# Evidence Operations — Design
+# Implementation Intelligence Library — Design
 
 > **The agent does not collect information because it exists. It collects
 > information because a specific decision needs it.**
@@ -6,79 +6,83 @@
 This is the governing principle. Every dollar spent on evidence acquisition is
 tied to improving a Decision Brief — not to "collecting the web."
 
+> Naming: this is the **Implementation Intelligence Library**, not an "evidence
+> database." "Database" describes the storage technology; "Implementation
+> Intelligence Library" describes the strategic asset — the thing investors,
+> customers, and future employees will understand and value.
+
 ## The three systems
 
 | System | Purpose | Status |
 |---|---|---|
-| **Evidence Operations** | Continuously improves the implementation intelligence: inspect gaps, plan targeted campaigns, discover/fetch/extract/publish only what a decision needs | this build |
+| **Implementation Intelligence Library** | The strategic asset: enrich existing records, discover new evidence from trusted Source Libraries, validate, and publish only implementation-rich records | this build |
 | **Decision Engine** | Turns that intelligence into defensible recommendations | live (compass-engine) |
-| **Implementation System** | Helps organizations execute and measure recommendations | live (implementations/workspaces) |
+| **Implementation System** | Helps organizations execute and measure recommendations | live |
+
+## The primary unit is a Source Library
+
+Discovery no longer begins with "search the web." It begins with a **Source
+Library** — one trusted collection of implementation evidence:
+
+- Cloud vendors: AWS / Microsoft / Google / Oracle / SAP / Salesforce /
+  ServiceNow / Snowflake / Databricks customer stories
+- Consulting: Accenture / Deloitte / McKinsey / Bain / BCG / EY / KPMG / PwC
+- Government: GAO / OECD / World Bank / NIST / NHS / US Digital Service /
+  UK GDS / state audit offices
+- Public companies: SEC filings, annual reports, earnings transcripts
+- Academic, industry associations, conference proceedings, engineering
+  retrospectives, customer presentations
+
+Each library tracks: estimated quality, implementation richness, acceptance
+rate, benchmark contribution, duplicate rate, average implementation fields,
+cost per accepted record, cost per improved Decision Brief.
 
 ## Agent cycle (extended)
 
-The existing enrichment cycle is preserved. The new cycle is:
-
 ```
-Inspect → Plan → Discover → Collect → Extract → Enrich → Validate → Publish → Benchmark → Learn
+Inspect benchmark → identify weakest decision category → choose best source
+libraries → discover → crawl → extract → validate → publish → benchmark →
+measure Decision Brief improvement → repeat
 ```
 
-1. **Inspect** — `gap_analysis`: measure evidence gaps per decision category
-   (workflow × business function × intervention). Rank by *expected impact* =
-   decision demand × gap severity (sparse comparables, missing rollout strategy /
-   validation gates / lessons, low gold/silver coverage).
-2. **Plan** — `CampaignPlanner`: pick the highest-impact categories, estimate
-   evidence needed (records + gold tier), propose high-value source types,
-   persist a `Campaign` with status/cost/benchmark-delta tracking.
-3. **Discover** — reuse the existing Compass collection framework
-   (`scraper/search/query_generator.py`, `scraper/sources/web_search.py`,
-   `config/evidence_seeds.yaml`, source registry). No second crawler.
-4. **Collect** — claim candidates; fetch (HTTP / existing crawl engine) + parse
-   (docling/bs4) to plain text.
-5. **Extract** — LLM extraction (budget-gated, shared DeepSeek budget) into the
-   canonical evidence schema.
-6. **Enrich** — the existing enrichment step fills Implementation Intelligence.
-7. **Validate** — schema + provenance + sanity rules.
-8. **Publish** — `POST /api/evidence/ingest` inserts **new** records only when
-   they pass duplicate detection and are *expected to improve* recommendation
-   quality (gold/silver tier, required fields present).
-9. **Benchmark** — re-run the category benchmark; record the delta.
-10. **Learn** — update campaign status + costs; close out completed campaigns.
+Campaigns begin with benchmark gaps, map to target libraries (e.g. customer
+onboarding missing rollout strategy/governance/validation gates → Microsoft,
+Salesforce, ServiceNow, Accenture), and general web search is only a fallback.
 
-## Discovery principles
+## Library exploration
 
-- **Target-first.** A campaign is created from a gap, then sources are sought for
-  it — never the reverse.
-- **Source types map to gaps.** Missing rollout strategy → engineering blogs /
-  vendor case studies; missing validation gates / causal outcomes → government
-  audits / SEC filings / peer-reviewed; missing breadth → search + curated seeds.
-- **Reuse, don't re-crawl.** Discovery calls the engine's existing
-  `SearchQueryGenerator`, `WebSearchScraper` (DuckDuckGo, no API key), and
-  `evidence_seeds.yaml`. Fetch/parse uses the engine's crawl + docling/bs4 path
-  behind a small pluggable adapter (dry-run fetcher for tests/CI).
-- **Budget-capped.** Discovery/fetch is cheap; every LLM extraction call is
-  budget-gated and counted. Campaign cost = sum of extraction + collection costs.
+Each Source Library supports: `discover → crawl → extract → validate → publish →
+metrics`. Progress is persisted (discovered / processed / accepted / rejected /
+remaining pages) so the agent resumes where it stopped and never re-crawls the
+same content.
+
+## Prioritization
+
+The planner ranks libraries to answer "what is the single highest-value evidence
+campaign right now?" using: benchmark impact, implementation density, source
+quality, organization/workflow diversity, cost, and acceptance rate. It prefers
+campaigns that increase diversity, not just volume.
 
 ## Publish gate
 
-A discovered record is **accepted** only if:
-- no near-duplicate already exists (content hash or normalized org+title match);
-- schema + provenance validation passes;
-- it is *expected to improve* the category benchmark: it carries a meaningful
-  evidence tier (gold/silver preferred) and/or fills a field the category
-  benchmark flagged as missing.
+A discovered record is **accepted** only if: no near-duplicate exists, schema +
+provenance validation passes, and it is expected to improve the category
+benchmark (valid tier + required fields + implementation depth). Otherwise it is
+rejected and counted in library/campaign metrics.
 
-Otherwise it is **rejected** (and the rejection is counted in campaign metrics).
+## Success metrics
 
-## Campaign metrics
+Report (not "pages crawled"): implementation records, implementation-rich
+records, accepted records, organizations/industries covered, decision categories
+improved, Decision Briefs improved, production-ready decisions, cost per
+accepted record, cost per improved Decision Brief, cost per implementation-rich
+record.
 
-- sources discovered / accepted / rejected
-- implementation-rich records created
-- benchmark improvement (before → after, per category)
-- cost per useful record
-- cost per improved Decision Brief (category benchmark delta / campaign cost)
+## Long-term objective
 
-## Non-goals
+Compass becomes the world's best implementation intelligence library. Every
+month the library grows larger, better, more diverse, more defensible, and more
+useful. The success criterion is not collecting more documents — it is producing
+better Executive Decision Briefs than any consultant, AI system, or internal
+team could produce. Target: 5,000 → 10,000+ high-quality implementation records.
 
-- Not an autonomous web crawler. No indiscriminate crawling.
-- No new second crawler implementation — reuse the engine framework.
-- No publish-without-quality-gate. Provenance and validation always enforced.
