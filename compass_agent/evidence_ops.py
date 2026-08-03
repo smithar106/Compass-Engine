@@ -24,6 +24,68 @@ log = logging.getLogger("compass_agent.evidence_ops")
 DEFAULT_DISCOVER_PER_CYCLE = 3
 
 
+def backfill_collector_db(db_path: str) -> int:
+    """Add the canonical organization backfill (organization_normalized) to the
+    agent's collector DB so matching + eval use canonical industries. The engine
+    backfill runs on the engine volume; the agent's own DB needs it too.
+    Idempotent; returns the number of records normalized."""
+    import json
+    from types import SimpleNamespace as NS
+
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.Error:
+        return 0
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(intervention_records)")}
+        if "organization_normalized" not in cols:
+            conn.execute("ALTER TABLE intervention_records ADD COLUMN organization_normalized TEXT")
+
+        from compass_collector.organization.backfill import normalize_record
+
+        rows = conn.execute(
+            "SELECT id, organization_name, organization_industry, problem_statement,"
+            " organization_employee_count, organization_geography, problem_business_function"
+            " FROM intervention_records"
+        ).fetchall()
+        updated = 0
+        for row in rows:
+            industry = row[2]
+            if isinstance(industry, str):
+                try:
+                    industry = json.loads(industry)
+                except Exception:
+                    industry = [industry]
+            geography = row[5]
+            if isinstance(geography, str):
+                try:
+                    geography = json.loads(geography)
+                except Exception:
+                    geography = []
+            rec = NS(
+                id=row[0],
+                organization_name=row[1],
+                organization_industry=industry or [],
+                problem_statement=row[3] or "",
+                organization_employee_count=row[4],
+                organization_geography=geography or [],
+                problem_business_function=row[6] or [],
+            )
+            try:
+                payload = normalize_record(rec)
+            except Exception:
+                continue
+            conn.execute(
+                "UPDATE intervention_records SET organization_normalized = ? WHERE id = ?",
+                (json.dumps(payload), row[0]),
+            )
+            updated += 1
+        conn.commit()
+        return updated
+    finally:
+        conn.close()
+
+
 def load_records(db_path: str, limit: Optional[int] = None) -> list:
     """Load collector-DB records as lightweight objects for gap analysis."""
     try:
@@ -36,19 +98,23 @@ def load_records(db_path: str, limit: Optional[int] = None) -> list:
             conn.execute("SELECT COUNT(*) FROM intervention_records")
         except sqlite3.Error:
             return []
-        sql = (
-            "SELECT id, organization_name, intervention_components,"
-            " problem_business_function, organization_normalized, evidence_level,"
-            " rollout_strategy, success_criteria, lessons_learned,"
-            " implementation_pattern, intervention_families, result_status"
-            " FROM intervention_records"
-            " LIMIT ?" if limit else
-            "SELECT id, organization_name, intervention_components,"
-            " problem_business_function, organization_normalized, evidence_level,"
-            " rollout_strategy, success_criteria, lessons_learned,"
-            " implementation_pattern, intervention_families, result_status"
-            " FROM intervention_records"
-        )
+        # Resilient to schema drift: some collector copies lack the backfilled
+        # organization_normalized column (e.g. the agent's own downloaded DB).
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(intervention_records)")}
+        has_norm = "organization_normalized" in cols
+        has_families = "intervention_families" in cols
+        base_cols = ("id", "organization_name", "intervention_components",
+                     "problem_business_function", "evidence_level",
+                     "rollout_strategy", "success_criteria", "lessons_learned",
+                     "implementation_pattern", "result_status")
+        select_cols = list(base_cols)
+        if has_norm:
+            select_cols.append("organization_normalized")
+        if has_families:
+            select_cols.append("intervention_families")
+        sql = f"SELECT {', '.join(select_cols)} FROM intervention_records"
+        if limit:
+            sql += " LIMIT ?"
         params = (limit,) if limit else ()
         rows = conn.execute(sql, params).fetchall()
         records = []
@@ -61,7 +127,7 @@ def load_records(db_path: str, limit: Optional[int] = None) -> list:
                     comps = _json.loads(comps)
                 except Exception:
                     comps = {}
-            norm = r["organization_normalized"]
+            norm = r["organization_normalized"] if has_norm else {}
             if isinstance(norm, str):
                 import json as _json
 
@@ -81,7 +147,7 @@ def load_records(db_path: str, limit: Optional[int] = None) -> list:
                     success_criteria=r["success_criteria"] or [],
                     lessons_learned=r["lessons_learned"] or [],
                     implementation_pattern=r["implementation_pattern"] or [],
-                    intervention_families=r["intervention_families"] or [],
+                    intervention_families=r["intervention_families"] if has_families else [],
                     result_status=r["result_status"] or "",
                 )
             )

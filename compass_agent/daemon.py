@@ -309,53 +309,59 @@ class Daemon:
 
         # Enrichment: deepen existing records.
         if self.enrichment is not None:
-            report = self.enrichment.run_cycle(
-                cycle=cycle,
-                max_docs=self.settings.max_docs_per_cycle,
-            )
-            self.logger.info(
-                "Cycle %d: enrichment candidates=%d valid=%d invalid=%d skipped=%d "
-                "published=%d cost=$%.4f (daily $%.2f / %.2f, total $%.2f / %.2f).",
-                cycle,
-                report.candidates,
-                report.valid,
-                report.invalid,
-                report.skipped,
-                report.published,
-                report.cost,
-                self.budget.daily_spent,
-                self.settings.max_daily_llm_usd,
-                self.budget.total_spent,
-                self.settings.max_total_llm_usd,
-            )
-            for failure in report.failures[:5]:
-                self.logger.warning("Cycle %d: %s", cycle, failure)
-            processed += report.processed
+            try:
+                report = self.enrichment.run_cycle(
+                    cycle=cycle,
+                    max_docs=self.settings.max_docs_per_cycle,
+                )
+                self.logger.info(
+                    "Cycle %d: enrichment candidates=%d valid=%d invalid=%d skipped=%d "
+                    "published=%d cost=$%.4f (daily $%.2f / %.2f, total $%.2f / %.2f).",
+                    cycle,
+                    report.candidates,
+                    report.valid,
+                    report.invalid,
+                    report.skipped,
+                    report.published,
+                    report.cost,
+                    self.budget.daily_spent,
+                    self.settings.max_daily_llm_usd,
+                    self.budget.total_spent,
+                    self.settings.max_total_llm_usd,
+                )
+                for failure in report.failures[:5]:
+                    self.logger.warning("Cycle %d: %s", cycle, failure)
+                processed += report.processed
+            except Exception as exc:
+                self.logger.error("Cycle %d: enrichment failed: %s", cycle, exc)
 
         # Evidence Operations: Inspect → Plan → Discover (budget-gated).
         if self.discovery is not None and self.collector_db and self.store:
             from compass_agent.evidence_ops import run_evidence_ops
 
             if self.budget.can_work():
-                ops = run_evidence_ops(
-                    store=self.store,
-                    collector_db=self.collector_db,
-                    discovery=self.discovery,
-                    max_sources=min(self.settings.max_docs_per_cycle, 3),
-                )
-                processed += ops.get("discovered", 0)
-                self.logger.info(
-                    "Cycle %d: evidence-ops campaign=%s discovered=%d accepted=%d "
-                    "rejected=%d cost=$%.4f (daily $%.2f / %.2f).",
-                    cycle,
-                    ops.get("campaign"),
-                    ops.get("discovered", 0),
-                    ops.get("accepted", 0),
-                    ops.get("rejected", 0),
-                    ops.get("cost_usd", 0.0),
-                    self.budget.daily_spent,
-                    self.settings.max_daily_llm_usd,
-                )
+                try:
+                    ops = run_evidence_ops(
+                        store=self.store,
+                        collector_db=self.collector_db,
+                        discovery=self.discovery,
+                        max_sources=min(self.settings.max_docs_per_cycle, 3),
+                    )
+                    processed += ops.get("discovered", 0)
+                    self.logger.info(
+                        "Cycle %d: evidence-ops campaign=%s discovered=%d accepted=%d "
+                        "rejected=%d cost=$%.4f (daily $%.2f / %.2f).",
+                        cycle,
+                        ops.get("campaign"),
+                        ops.get("discovered", 0),
+                        ops.get("accepted", 0),
+                        ops.get("rejected", 0),
+                        ops.get("cost_usd", 0.0),
+                        self.budget.daily_spent,
+                        self.settings.max_daily_llm_usd,
+                    )
+                except Exception as exc:
+                    self.logger.error("Cycle %d: evidence-ops failed: %s", cycle, exc)
 
         self.budget.check_alerts(logger=self.logger, notify=self.notify)
 

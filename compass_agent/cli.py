@@ -194,9 +194,23 @@ def cmd_daemon(settings: Settings, problems: list[str]) -> int:
     )
     # Resolve a real collector DB for gap analysis + discovery candidates.
     from compass_agent.db import ensure_collector_db
+    from compass_agent.evidence_ops import backfill_collector_db
     from compass_agent.store import AgentStore
 
     collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if collector_db:
+        try:
+            from compass_agent.evidence_ops import backfill_collector_db
+            backfill_collector_db(collector_db)
+        except Exception:
+            pass
+    if collector_db:
+        try:
+            n = backfill_collector_db(collector_db)
+            if n:
+                log.info("Backfilled %d records on the agent collector DB (organization_normalized)", n)
+        except Exception as exc:
+            log.warning("collector DB backfill failed (non-fatal): %s", exc)
     store = AgentStore(db_path=settings.store_db or "")
     enrichment = _build_enrichment_workflow(settings, budget)
     discovery = _build_discovery(settings, store, collector_db)
@@ -284,6 +298,12 @@ def cmd_campaign(settings: Settings, problems: list[str], action: str, sources: 
     from compass_agent.store import AgentStore
 
     collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if collector_db:
+        try:
+            from compass_agent.evidence_ops import backfill_collector_db
+            backfill_collector_db(collector_db)
+        except Exception:
+            pass
     if not collector_db:
         print("No collector DB available (AGENT_CANDIDATE_DB).")
         return 1
@@ -354,6 +374,12 @@ def cmd_libraries(settings: Settings, problems: list[str], action: str, library_
     from compass_agent.store import AgentStore
 
     collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if collector_db:
+        try:
+            from compass_agent.evidence_ops import backfill_collector_db
+            backfill_collector_db(collector_db)
+        except Exception:
+            pass
     if not collector_db:
         print("No collector DB available (AGENT_CANDIDATE_DB).")
         return 1
@@ -417,6 +443,12 @@ def cmd_eval(settings: Settings, problems: list[str], action: str) -> int:
     )
 
     collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if collector_db:
+        try:
+            from compass_agent.evidence_ops import backfill_collector_db
+            backfill_collector_db(collector_db)
+        except Exception:
+            pass
     if not collector_db:
         print("No collector DB available (AGENT_CANDIDATE_DB).")
         return 1
