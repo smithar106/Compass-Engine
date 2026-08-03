@@ -406,12 +406,59 @@ class DiscoveryPipeline:
         llm,
         ingest: IngestPublisher,
         budget_gate: Optional[Callable[[], bool]] = None,
+        max_implementations_per_source: int = 3,
     ) -> None:
         self.planner = planner
         self.fetcher = fetcher
         self.llm = llm
         self.ingest = ingest
         self.budget_gate = budget_gate
+        self.max_implementations_per_source = max_implementations_per_source
+
+    def _ingest_payload(self, payload: dict, candidate: dict, campaign: Campaign, report: DiscoveryReport) -> None:
+        from compass_agent.validate import validate_enrichment
+
+        validation = validate_enrichment(payload)
+        if not validation.valid:
+            report.rejected += 1
+            report.rejections.append("validation")
+            return
+        record = {
+            "source": "compass_agent:discovery",
+            "url": candidate["url"],
+            "title": candidate.get("title", ""),
+            "organization_name": payload.get("organization_name", ""),
+            "organization_industry": [payload.get("organization_industry")] if payload.get("organization_industry") else [],
+            "problem_statement": payload.get("business_problem", ""),
+            "problem_business_function": [payload.get("business_function", "")] if payload.get("business_function") else [],
+            "workflow": payload.get("workflow", campaign.workflow),
+            "intervention_title": payload.get("intervention_title", ""),
+            "intervention_category": payload.get("intervention_category", ""),
+            "intervention_families": [payload.get("intervention_category", "").lower().replace(" ", "_")] if payload.get("intervention_category") else [],
+            "evidence_tier": str(payload.get("evidence_tier") or "bronze").lower(),
+            "implementation_provenance": (payload.get("evidence_quality") or {}).get("implementation_provenance", ""),
+            "outcome_provenance": (payload.get("evidence_quality") or {}).get("outcome_provenance", ""),
+            "implementation_fields": {
+                "rollout_strategy": payload.get("rollout_strategy", ""),
+                "success_criteria": payload.get("success_criteria") or [],
+                "lessons_learned": payload.get("lessons_learned") or [],
+                "implementation_pattern": payload.get("implementation_pattern") or [],
+                "pilot_structure": payload.get("pilot_structure", ""),
+                "executive_sponsor": payload.get("executive_sponsor", ""),
+                "governance_model": payload.get("governance_model", ""),
+                "intervention_vendors": payload.get("intervention_vendors") or [],
+            },
+            "outcomes": payload.get("outcomes") or [],
+            "field_provenance": [{"field": k, "source": "llm_extraction", "url": candidate["url"]} for k in ("rollout_strategy", "success_criteria", "lessons_learned", "implementation_pattern")],
+        }
+        ingest_result = self.ingest.ingest(record)
+        if ingest_result.get("accepted"):
+            report.accepted += 1
+            if ingest_result.get("rich"):
+                report.rich_records_created += 1
+        else:
+            report.rejected += 1
+            report.rejections.append(ingest_result.get("reason", "rejected"))
 
     def run(self, campaign: Campaign, max_sources: int = 10) -> DiscoveryReport:
         report = DiscoveryReport(workflow=campaign.workflow, business_function=campaign.business_function)
@@ -439,48 +486,28 @@ class DiscoveryPipeline:
             from compass_agent.validate import validate_enrichment
 
             validation = validate_enrichment(result.payload)
-            if not validation.valid:
-                report.rejected += 1
-                report.rejections.append("validation")
+            if validation.valid:
+                self._ingest_payload(result.payload, candidate, campaign, report)
                 continue
 
-            payload = result.payload
-            record = {
-                "source": "compass_agent:discovery",
-                "url": candidate["url"],
-                "title": candidate.get("title", ""),
-                "organization_name": payload.get("organization_name", ""),
-                "organization_industry": [payload.get("organization_industry")] if payload.get("organization_industry") else [],
-                "problem_statement": payload.get("business_problem", ""),
-                "problem_business_function": [payload.get("business_function", "")] if payload.get("business_function") else [],
-                "workflow": payload.get("workflow", campaign.workflow),
-                "intervention_title": payload.get("intervention_title", ""),
-                "intervention_category": payload.get("intervention_category", ""),
-                "intervention_families": [payload.get("intervention_category", "").lower().replace(" ", "_")] if payload.get("intervention_category") else [],
-                "evidence_tier": str(payload.get("evidence_tier") or "bronze").lower(),
-                "implementation_provenance": (payload.get("evidence_quality") or {}).get("implementation_provenance", ""),
-                "outcome_provenance": (payload.get("evidence_quality") or {}).get("outcome_provenance", ""),
-                "implementation_fields": {
-                    "rollout_strategy": payload.get("rollout_strategy", ""),
-                    "success_criteria": payload.get("success_criteria") or [],
-                    "lessons_learned": payload.get("lessons_learned") or [],
-                    "implementation_pattern": payload.get("implementation_pattern") or [],
-                    "pilot_structure": payload.get("pilot_structure", ""),
-                    "executive_sponsor": payload.get("executive_sponsor", ""),
-                    "governance_model": payload.get("governance_model", ""),
-                    "intervention_vendors": payload.get("intervention_vendors") or [],
-                },
-                "outcomes": payload.get("outcomes") or [],
-                "field_provenance": [{"field": k, "source": "llm_extraction", "url": candidate["url"]} for k in ("rollout_strategy", "success_criteria", "lessons_learned", "implementation_pattern")],
-            }
-            ingest_result = self.ingest.ingest(record)
-            if ingest_result.get("accepted"):
-                report.accepted += 1
-                if ingest_result.get("rich"):
-                    report.rich_records_created += 1
-            else:
+            # Single extraction failed (roundup/summary page). Try multi-extraction:
+            # pull every implementation described in the text as separate records.
+            if self.budget_gate is not None and not self.budget_gate():
+                report.rejections.append("budget_gate")
+                break
+            many = self.llm.enrich_many(text, title=candidate.get("title", ""), url=candidate["url"])
+            if not many:
                 report.rejected += 1
-                report.rejections.append(ingest_result.get("reason", "rejected"))
+                report.rejections.append("no_implementations")
+                continue
+            # attribute cost once for the multi call (shared across results)
+            report.cost_usd += many[0].cost
+            ingested = 0
+            for item in many:
+                if ingested >= self.max_implementations_per_source:
+                    break
+                self._ingest_payload(item.payload, candidate, campaign, report)
+                ingested += 1
 
         # update the campaign
         campaign.discovered += report.sources_discovered

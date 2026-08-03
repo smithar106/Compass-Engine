@@ -59,6 +59,33 @@ class FakeLLM:
         }
         return EnrichmentResult(payload=payload, cost=0.001, input_tokens=100, output_tokens=50, model=self.model)
 
+    def enrich_many(self, text, title="", url=""):
+        from compass_agent.llm import EnrichmentResult
+
+        items = [
+            {"organization_name": "Org A", "workflow": self.workflow, "intervention_title": "Automation A",
+             "intervention_category": "Workflow_Automation", "evidence_tier": "silver",
+             "rollout_strategy": "Pilot", "success_criteria": ["x"], "lessons_learned": ["y"],
+             "implementation_pattern": ["Pilot -> Rollout"], "outcomes": []},
+            {"organization_name": "Org B", "workflow": self.workflow, "intervention_title": "Automation B",
+             "intervention_category": "Workflow_Automation", "evidence_tier": "bronze",
+             "rollout_strategy": "Big bang", "success_criteria": ["z"], "lessons_learned": [],
+             "implementation_pattern": ["Big Bang"], "outcomes": []},
+        ]
+        return [EnrichmentResult(payload=p, cost=0.002, input_tokens=200, output_tokens=100, model=self.model) for p in items]
+
+
+class RejectingLLM(FakeLLM):
+    """LLM whose single extraction always fails validation (roundup page)."""
+
+    def enrich(self, text, title="", url=""):
+        from compass_agent.llm import EnrichmentResult
+
+        return EnrichmentResult(
+            payload={"evidence_tier": "rejected", "rejection_reason": "roundup"},
+            cost=0.001, input_tokens=100, output_tokens=50, model=self.model,
+        )
+
 
 class StubIngest:
     def __init__(self, accepted=True, rich=True):
@@ -201,6 +228,23 @@ class TestDiscovery(unittest.TestCase):
         report = pipeline.run(campaign, max_sources=2)
         self.assertEqual(report.accepted, 0)
         self.assertIn("budget_gate", report.rejections)
+
+    def test_multi_extraction_mines_roundup_pages(self):
+        """A roundup page that single-extraction rejects should yield multiple
+        accepted implementations via enrich_many."""
+        from compass_agent.campaign import Campaign
+
+        campaign = Campaign(workflow="ticketing", business_function="support")
+        pipeline = DiscoveryPipeline(
+            planner=SourcePlanner(backends=[StubSearch()]),
+            fetcher=StubFetcher(text="A long roundup page describing many orgs. " * 10),
+            llm=RejectingLLM(),
+            ingest=StubIngest(accepted=True, rich=True),
+        )
+        report = pipeline.run(campaign, max_sources=2)
+        self.assertGreater(report.accepted, 0)  # mined Org A + Org B
+        self.assertGreaterEqual(report.accepted, 2)
+        self.assertEqual(campaign.accepted, report.accepted)
 
 
 if __name__ == "__main__":

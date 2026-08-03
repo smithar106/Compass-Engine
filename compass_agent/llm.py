@@ -36,6 +36,30 @@ DEFAULT_MODELS = {
 # Conservative output-token budget for a structured extraction call.
 DEFAULT_OUTPUT_TOKENS = 2500
 
+MULTI_EXTRACTION_PROMPT = """You are a research analyst extracting evidence-driven business interventions for Compass, a Decision Intelligence Engine.
+
+The text below may describe MULTIPLE organizations that implemented operational interventions with measured outcomes (case studies, ROI reports, transformation roundups).
+
+Extract a JSON ARRAY — one object per implementation that has a named organization AND a described intervention. Each object:
+{
+  "organization_name": "company or org name",
+  "organization_industry": "canonical industry (e.g. financial_services, healthcare, retail_consumer, technology, manufacturing)",
+  "workflow": "specific workflow or process",
+  "intervention_title": "what was implemented",
+  "intervention_category": "Workflow_Automation | AI | Software | Process_Redesign | Staffing | Hybrid",
+  "evidence_tier": "gold | silver | bronze | rejected",
+  "rollout_strategy": "how it was rolled out",
+  "success_criteria": ["validation gates / success measures"],
+  "lessons_learned": ["lessons"],
+  "implementation_pattern": ["Pilot -> Rollout", ...],
+  "outcomes": [{"metric_name": "...", "category": "time/cost/revenue/quality/...", "percentage_change": number, "unit": "..."}]
+}
+
+Only include items with a real organization and a concrete intervention. Return [] if the text describes no such implementations.
+
+SOURCE TEXT:
+"""
+
 
 @dataclass
 class EnrichmentResult:
@@ -160,6 +184,74 @@ class LLMClient:
         if self.provider == "anthropic":
             return "https://api.anthropic.com/v1/messages"
         return "https://api.deepseek.com/v1/chat/completions"
+
+    def enrich_many(self, text: str, title: str = "", url: str = "") -> "list[EnrichmentResult]":
+        """Extract MULTIPLE implementations from a roundup/summary page.
+
+        Returns one EnrichmentResult per implementation found (empty list when
+        the page describes none). Cost is attributed to each result.
+        """
+        if not self.can_run:
+            return []
+        prompt = MULTI_EXTRACTION_PROMPT + "\n\n" + (text or "")[:8000]
+        endpoint = self._endpoint()
+        body = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 8192,
+        }
+        headers = {"Content-Type": "application/json"}
+        if self.provider == "deepseek":
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        elif self.provider == "anthropic":
+            headers["x-api-key"] = self.api_key
+            headers["anthropic-version"] = "2023-06-01"
+
+        http = self._http or httpx.Client(timeout=self.timeout)
+        try:
+            resp = http.post(endpoint, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            content = self._extract_content(data)
+            usage = data.get("usage", {})
+            input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            cost = self._compute_cost(input_tokens, output_tokens)
+            parsed = self._parse_json(content)
+            items = parsed if isinstance(parsed, list) else parsed.get("implementations", [])
+            if not isinstance(items, list):
+                return []
+            results = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item.setdefault("_meta", {}).update(
+                    {
+                        "model": self.model,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cost": cost,
+                        "extracted_at": datetime.now(timezone.utc).isoformat(),
+                        "title": title,
+                        "url": url,
+                    }
+                )
+                results.append(
+                    EnrichmentResult(
+                        payload=item,
+                        cost=cost,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        model=self.model,
+                    )
+                )
+            with self._lock:
+                self._spent += cost
+            return results
+        except Exception as exc:
+            log.error("LLM multi-enrich failed: %s", exc)
+            return []
 
     def _extract_content(self, data: dict) -> str:
         if self.provider == "anthropic":
