@@ -117,4 +117,5 @@ def run_evidence_ops(
         "accepted": report.accepted,
         "rejected": report.rejected,
         "cost_usd": round(report.cost_usd, 6),
+        "rejections": report.rejections,
     }

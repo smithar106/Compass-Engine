@@ -324,6 +324,12 @@ def cmd_campaign(settings: Settings, problems: list[str], action: str, sources: 
         print(f"Evidence ops pass: campaign={result.get('campaign')} "
               f"discovered={result.get('discovered')} accepted={result.get('accepted')} "
               f"rejected={result.get('rejected')} cost=${result.get('cost_usd', 0):.4f}")
+        reasons = result.get("rejections") or []
+        if reasons:
+            from collections import Counter
+
+            counts = Counter(reasons)
+            print("  rejections:", dict(counts))
         return 0
     return 0
 
