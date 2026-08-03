@@ -162,6 +162,23 @@ class TestCampaignPlanner(unittest.TestCase):
         self.assertEqual(stored[0]["id"], c.id)
 
 
+class IndexFetcher(StubFetcher):
+    """A fetcher that returns a short index page but long case-study article text."""
+
+    def __init__(self, index_text="", article_text="", links=None):
+        super().__init__(text=index_text)
+        self.article_text = article_text or ("A long case study article text. " * 20)
+        self.links = links or [{"url": "https://example.com/case-study/1", "title": "CS1"}]
+
+    def fetch_links(self, url, title=""):
+        return self.links
+
+    def fetch(self, url, title=""):
+        if "/case-study/" in url:
+            return self.article_text
+        return self.text
+
+
 class TestDiscovery(unittest.TestCase):
     def test_clean_url_decodes_duckduckgo_redirect(self):
         url = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.example.com%2Fcase-study&rut=abc"
@@ -245,6 +262,22 @@ class TestDiscovery(unittest.TestCase):
         self.assertGreater(report.accepted, 0)  # mined Org A + Org B
         self.assertGreaterEqual(report.accepted, 2)
         self.assertEqual(campaign.accepted, report.accepted)
+
+    def test_index_expansion_follows_case_study_links(self):
+        """An index page with no direct implementations is expanded into its
+        case-study article links, which yield accepted records."""
+        from compass_agent.campaign import Campaign
+
+        campaign = Campaign(workflow="ticketing", business_function="support")
+        pipeline = DiscoveryPipeline(
+            planner=SourcePlanner(backends=[StubSearch()]),
+            fetcher=IndexFetcher(text="A short index page. " * 5),  # <120 chars → insufficient_text path
+            llm=FakeLLM(),
+            ingest=StubIngest(accepted=True, rich=True),
+        )
+        report = pipeline.run(campaign, max_sources=1)
+        self.assertGreater(report.accepted, 0)  # mined from the expanded link
+        self.assertGreater(report.sources_discovered, 1)
 
 
 if __name__ == "__main__":

@@ -246,6 +246,47 @@ class HttpFetcher(Fetcher):
             log.warning("fetch failed for %s: %s", url, exc)
             return ""
 
+    def fetch_links(self, url: str, title: str = "") -> list[dict]:
+        """Extract same-domain article links likely to be individual case
+        studies, so an index/landing page can be expanded into its articles."""
+        import httpx
+        from urllib.parse import urljoin, urlparse
+
+        from bs4 import BeautifulSoup
+
+        if not url.startswith(("http://", "https://")):
+            return []
+        try:
+            resp = httpx.get(url, timeout=30, follow_redirects=True, headers={"User-Agent": "CompassEvidenceAgent/1.0"})
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+        except Exception:
+            return []
+        base_host = urlparse(url).netloc.replace("www.", "")
+        markers = ("case-study", "case_study", "case study", "customer", "stories", "story", "success")
+        links = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            if not href or href.startswith(("#", "mailto:", "javascript:")):
+                continue
+            absolute = urljoin(url, href)
+            parsed = urlparse(absolute)
+            host = parsed.netloc.replace("www.", "")
+            if host != base_host:
+                continue
+            path = parsed.path.lower()
+            if not any(m in path for m in markers):
+                continue
+            links.append({"url": absolute, "title": a.get_text(" ", strip=True)[:160]})
+        # de-dup by url
+        seen = set()
+        out = []
+        for l in links:
+            if l["url"] not in seen:
+                seen.add(l["url"])
+                out.append(l)
+        return out[:20]
+
 
 class StubFetcher(Fetcher):
     """Returns a fixed text (tests)."""
@@ -460,6 +501,42 @@ class DiscoveryPipeline:
             report.rejected += 1
             report.rejections.append(ingest_result.get("reason", "rejected"))
 
+    def _extract_and_ingest(self, text: str, candidate: dict, campaign: Campaign, report: DiscoveryReport) -> bool:
+        """Run single + (fallback) multi extraction over a page; ingest any
+        accepted implementations. Returns True if at least one was accepted."""
+        if self.budget_gate is not None and not self.budget_gate():
+            report.rejections.append("budget_gate")
+            return False
+
+        result = self.llm.enrich(text, title=candidate.get("title", ""), url=candidate["url"])
+        report.cost_usd += result.cost
+
+        from compass_agent.validate import validate_enrichment
+
+        validation = validate_enrichment(result.payload)
+        if validation.valid:
+            self._ingest_payload(result.payload, candidate, campaign, report)
+            return True
+
+        # Roundup/summary page: mine multiple implementations.
+        if self.budget_gate is not None and not self.budget_gate():
+            report.rejections.append("budget_gate")
+            return False
+        many = self.llm.enrich_many(text, title=candidate.get("title", ""), url=candidate["url"])
+        if not many:
+            report.rejected += 1
+            report.rejections.append("no_implementations")
+            return False
+        report.cost_usd += many[0].cost
+        before = report.accepted
+        ingested = 0
+        for item in many:
+            if ingested >= self.max_implementations_per_source:
+                break
+            self._ingest_payload(item.payload, candidate, campaign, report)
+            ingested += 1
+        return report.accepted > before
+
     def run(self, campaign: Campaign, max_sources: int = 10) -> DiscoveryReport:
         report = DiscoveryReport(workflow=campaign.workflow, business_function=campaign.business_function)
         if not self.llm.can_run:
@@ -474,40 +551,18 @@ class DiscoveryPipeline:
                 report.rejections.append("budget_gate")
                 break
 
+            before = report.accepted
             text = self.fetcher.fetch(candidate["url"], candidate.get("title", ""))
             if len(text.strip()) < 120:
                 report.rejected += 1
                 report.rejections.append("insufficient_text")
+                self._expand(candidate, campaign, report)
                 continue
 
-            result = self.llm.enrich(text, title=candidate.get("title", ""), url=candidate["url"])
-            report.cost_usd += result.cost
-
-            from compass_agent.validate import validate_enrichment
-
-            validation = validate_enrichment(result.payload)
-            if validation.valid:
-                self._ingest_payload(result.payload, candidate, campaign, report)
-                continue
-
-            # Single extraction failed (roundup/summary page). Try multi-extraction:
-            # pull every implementation described in the text as separate records.
-            if self.budget_gate is not None and not self.budget_gate():
-                report.rejections.append("budget_gate")
-                break
-            many = self.llm.enrich_many(text, title=candidate.get("title", ""), url=candidate["url"])
-            if not many:
-                report.rejected += 1
-                report.rejections.append("no_implementations")
-                continue
-            # attribute cost once for the multi call (shared across results)
-            report.cost_usd += many[0].cost
-            ingested = 0
-            for item in many:
-                if ingested >= self.max_implementations_per_source:
-                    break
-                self._ingest_payload(item.payload, candidate, campaign, report)
-                ingested += 1
+            self._extract_and_ingest(text, candidate, campaign, report)
+            # nothing accepted from this page → it may be an index; follow links
+            if report.accepted == before:
+                self._expand(candidate, campaign, report)
 
         # update the campaign
         campaign.discovered += report.sources_discovered
@@ -516,3 +571,22 @@ class DiscoveryPipeline:
         campaign.rich_records_created += report.rich_records_created
         campaign.cost_usd += report.cost_usd
         return report
+
+    def _expand(self, candidate: dict, campaign: Campaign, report: DiscoveryReport) -> None:
+        """Follow same-domain case-study links from an index/landing page."""
+        fetcher = getattr(self.fetcher, "fetch_links", None)
+        if fetcher is None:
+            return
+        try:
+            links = fetcher(candidate["url"], candidate.get("title", ""))
+        except Exception as exc:
+            log.warning("link expansion failed for %s: %s", candidate["url"], exc)
+            return
+        for link in links[: self.max_implementations_per_source]:
+            if self.budget_gate is not None and not self.budget_gate():
+                break
+            link_text = self.fetcher.fetch(link["url"], link.get("title", ""))
+            if len(link_text.strip()) < 120:
+                continue
+            report.sources_discovered += 1
+            self._extract_and_ingest(link_text, link, campaign, report)
