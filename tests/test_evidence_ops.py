@@ -271,7 +271,7 @@ class TestDiscovery(unittest.TestCase):
         campaign = Campaign(workflow="ticketing", business_function="support")
         pipeline = DiscoveryPipeline(
             planner=SourcePlanner(backends=[StubSearch()]),
-            fetcher=IndexFetcher(text="A short index page. " * 5),  # <120 chars → insufficient_text path
+            fetcher=IndexFetcher(index_text="A short index page. " * 5),  # <120 chars → insufficient_text path
             llm=FakeLLM(),
             ingest=StubIngest(accepted=True, rich=True),
         )
