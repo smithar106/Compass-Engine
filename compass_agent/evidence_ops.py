@@ -81,7 +81,15 @@ def run_evidence_ops(
     max_sources: int = DEFAULT_DISCOVER_PER_CYCLE,
     min_impact: float = 0.1,
 ) -> dict:
-    """Run one Inspect→Plan→Discover pass. Returns a summary dict."""
+    """Run one Inspect→Plan→Collect pass.
+
+    Discovery begins with the highest-value Source Library for the active
+    campaign (from the curated library registry); general web search is only a
+    fallback when the library yields no accepted records.
+    """
+    from compass_agent.campaign import Campaign, CampaignPlanner
+    from compass_agent.libraries import ensure_libraries, prioritize_libraries, run_library
+
     records = load_records(collector_db)
     if not records:
         return {"planned": 0, "campaign": None, "discovered": 0, "accepted": 0, "rejected": 0}
@@ -93,13 +101,59 @@ def run_evidence_ops(
         planned = CampaignPlanner(store, min_impact=min_impact).plan(gaps)
         if not planned:
             return {"planned": 0, "campaign": None, "discovered": 0, "accepted": 0, "rejected": 0}
-        # activate the single highest-impact campaign
         store.update_campaign(planned[0].id, status="active")
         campaign = planned[0]
     else:
         campaign = Campaign(**active[0])
 
-    report = discovery.run(campaign, max_sources=max_sources)
+    result = {"campaign": campaign.id, "workflow": campaign.workflow,
+              "discovered": 0, "accepted": 0, "rejected": 0, "cost_usd": 0.0, "source": "none"}
+
+    # 1) Source Library first — the primary evidence unit.
+    ensure_libraries(store)
+    libraries = prioritize_libraries(store)
+    lib_result = None
+    if libraries:
+        try:
+            lib_result = run_library(
+                store, libraries[0], discovery, campaign,
+                max_pages=min(max_sources, 5),
+            )
+        except Exception as exc:
+            log.warning("library crawl failed for %s: %s", libraries[0]["id"], exc)
+            lib_result = None
+        if lib_result and lib_result["accepted"] > 0:
+            result.update({
+                "discovered": lib_result["pages_processed"],
+                "accepted": lib_result["accepted"],
+                "rejected": lib_result["rejected"],
+                "cost_usd": lib_result["cost_usd"],
+                "source": f"library:{libraries[0]['id']}",
+            })
+            campaign.discovered += lib_result["pages_processed"]
+            campaign.accepted += lib_result["accepted"]
+            campaign.rejected += lib_result["rejected"]
+            campaign.cost_usd += lib_result["cost_usd"]
+
+    # 2) General web search is the fallback (or a secondary pass).
+    if lib_result is None or lib_result["accepted"] == 0:
+        try:
+            report = discovery.run(campaign, max_sources=max_sources)
+        except Exception as exc:
+            log.warning("discovery run failed: %s", exc)
+            report = None
+        if report is not None:
+            result.update({
+                "discovered": report.sources_discovered,
+                "accepted": report.accepted,
+                "rejected": report.rejected,
+                "cost_usd": round(report.cost_usd, 6),
+                "source": "search_fallback",
+            })
+            campaign.discovered += report.sources_discovered
+            campaign.accepted += report.accepted
+            campaign.rejected += report.rejected
+            campaign.cost_usd += report.cost_usd
 
     store.update_campaign(
         campaign.id,
@@ -109,13 +163,5 @@ def run_evidence_ops(
         rich_records_created=campaign.rich_records_created,
         cost_usd=campaign.cost_usd,
     )
-    return {
-        "planned": 1 if active and not active else 1,
-        "campaign": campaign.id,
-        "workflow": campaign.workflow,
-        "discovered": report.sources_discovered,
-        "accepted": report.accepted,
-        "rejected": report.rejected,
-        "cost_usd": round(report.cost_usd, 6),
-        "rejections": report.rejections,
-    }
+    result["planned"] = 1
+    return result

@@ -472,7 +472,7 @@ class DiscoveryPipeline:
             "organization_industry": [payload.get("organization_industry")] if payload.get("organization_industry") else [],
             "problem_statement": payload.get("business_problem", ""),
             "problem_business_function": [payload.get("business_function", "")] if payload.get("business_function") else [],
-            "workflow": payload.get("workflow", campaign.workflow),
+            "workflow": payload.get("workflow") or (campaign.workflow if campaign else ""),
             "intervention_title": payload.get("intervention_title", ""),
             "intervention_category": payload.get("intervention_category", ""),
             "intervention_families": [payload.get("intervention_category", "").lower().replace(" ", "_")] if payload.get("intervention_category") else [],

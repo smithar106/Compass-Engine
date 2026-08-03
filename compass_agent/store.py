@@ -63,6 +63,35 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at             TEXT NOT NULL,
     updated_at             TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS libraries (
+    id                     TEXT PRIMARY KEY,
+    name                   TEXT NOT NULL,
+    category               TEXT NOT NULL DEFAULT '',
+    entry_urls             TEXT NOT NULL DEFAULT '[]',
+    estimated_quality      REAL NOT NULL DEFAULT 0.5,
+    discovered             INTEGER NOT NULL DEFAULT 0,
+    processed              INTEGER NOT NULL DEFAULT 0,
+    accepted               INTEGER NOT NULL DEFAULT 0,
+    rejected               INTEGER NOT NULL DEFAULT 0,
+    remaining              INTEGER NOT NULL DEFAULT 0,
+    cost_usd               REAL NOT NULL DEFAULT 0,
+    acceptance_rate        REAL NOT NULL DEFAULT 0,
+    avg_implementation_fields REAL NOT NULL DEFAULT 0,
+    benchmark_contribution REAL NOT NULL DEFAULT 0,
+    last_crawl             TEXT,
+    next_crawl             TEXT,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS library_pages (
+    url            TEXT PRIMARY KEY,
+    library_id     TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'discovered',
+    title          TEXT DEFAULT '',
+    content_hash   TEXT DEFAULT '',
+    accepted_record TEXT DEFAULT '',
+    processed_at   TEXT
+);
 """
 
 
@@ -255,6 +284,78 @@ class AgentStore:
             self.conn.execute(
                 f"UPDATE campaigns SET {assignments} WHERE id = ?",
                 (*fields.values(), campaign_id),
+            )
+
+    # -- libraries ---------------------------------------------------------
+    def save_library(self, library: dict) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO libraries (id, name, category, entry_urls,"
+                " estimated_quality, discovered, processed, accepted, rejected,"
+                " remaining, cost_usd, acceptance_rate, avg_implementation_fields,"
+                " benchmark_contribution, last_crawl, next_crawl, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    library["id"], library["name"], library.get("category", ""),
+                    json.dumps(library.get("entry_urls", [])),
+                    library.get("estimated_quality", 0.5),
+                    library.get("discovered", 0), library.get("processed", 0),
+                    library.get("accepted", 0), library.get("rejected", 0),
+                    library.get("remaining", 0), library.get("cost_usd", 0.0),
+                    library.get("acceptance_rate", 0.0),
+                    library.get("avg_implementation_fields", 0.0),
+                    library.get("benchmark_contribution", 0.0),
+                    library.get("last_crawl"), library.get("next_crawl"),
+                    library.get("created_at") or _now(), library.get("updated_at") or _now(),
+                ),
+            )
+
+    def list_libraries(self) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM libraries ORDER BY name").fetchall()
+        out = []
+        for row in rows:
+            data = dict(row)
+            data["entry_urls"] = json.loads(data["entry_urls"] or "[]")
+            out.append(data)
+        return out
+
+    def update_library(self, library_id: str, **fields) -> None:
+        if not fields:
+            return
+        fields = {k: v for k, v in fields.items()}
+        fields["updated_at"] = _now()
+        assignments = ", ".join(f"{k} = ?" for k in fields)
+        with self.conn:
+            self.conn.execute(
+                f"UPDATE libraries SET {assignments} WHERE id = ?",
+                (*fields.values(), library_id),
+            )
+
+    def claim_library_page(self, url: str, library_id: str, title: str = "") -> bool:
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO library_pages (url, library_id, status, title)"
+                    " VALUES (?,?,?,?)",
+                    (url, library_id, "discovered", title),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def pending_library_pages(self, library_id: str, limit: int = 10) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT url, title FROM library_pages WHERE library_id = ? AND status = 'discovered'"
+            " ORDER BY processed_at IS NULL DESC, url LIMIT ?",
+            (library_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_library_page(self, url: str, status: str, accepted_record: str = "") -> None:
+        with self.conn:
+            self.conn.execute(
+                "UPDATE library_pages SET status = ?, accepted_record = ?, processed_at = ? WHERE url = ?",
+                (status, accepted_record, _now(), url),
             )
 
 

@@ -51,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     camp = sub.add_parser("campaign", help="Evidence Operations: inspect gaps, plan/run targeted evidence campaigns")
     camp.add_argument("action", choices=["plan", "list", "run", "archive"], help="campaign action")
     camp.add_argument("--sources", type=int, default=3, help="max sources to discover per run")
+    lib = sub.add_parser("libraries", help="Source Library dashboard: health, crawl, and prioritization")
+    lib.add_argument("action", choices=["status", "crawl", "rank"], help="library action")
+    lib.add_argument("--library", type=str, default="", help="library id to crawl")
+    lib.add_argument("--pages", type=int, default=5, help="max pages per library crawl")
     return parser
 
 
@@ -334,6 +338,69 @@ def cmd_campaign(settings: Settings, problems: list[str], action: str, sources: 
     return 0
 
 
+def cmd_libraries(settings: Settings, problems: list[str], action: str, library_id: str, pages: int) -> int:
+    if problems:
+        return _print_config_errors(problems)
+    from compass_agent.db import ensure_collector_db
+    from compass_agent.evidence_ops import run_evidence_ops
+    from compass_agent.libraries import (
+        ensure_libraries,
+        library_score,
+        prioritize_libraries,
+        run_library,
+    )
+    from compass_agent.store import AgentStore
+
+    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if not collector_db:
+        print("No collector DB available (AGENT_CANDIDATE_DB).")
+        return 1
+    store = AgentStore(db_path=settings.store_db or "")
+    ensure_libraries(store)
+
+    if action == "status":
+        libs = store.list_libraries()
+        if not libs:
+            print("No libraries registered.")
+            return 0
+        total_processed = sum(l["processed"] for l in libs)
+        total_accepted = sum(l["accepted"] for l in libs)
+        total_cost = sum(l["cost_usd"] for l in libs)
+        print(f"Implementation Intelligence Library — Source Library health")
+        print(f"  libraries: {len(libs)} | pages processed: {total_processed} | "
+              f"accepted: {total_accepted} | cost: ${total_cost:.4f}")
+        print(f"  {'library':<28s} {'cat':<14s} {'proc':>5s} {'acc':>4s} {'rej':>4s} "
+              f"{'acc%':>5s} {'cost':>7s} {'last_crawl':>12s}")
+        for l in sorted(libs, key=lambda x: -library_score(x)):
+            print(f"  {l['name'][:28]:<28s} {l['category'][:14]:<14s} {l['processed']:>5d} "
+                  f"{l['accepted']:>4d} {l['rejected']:>4d} {l['acceptance_rate']*100:>4.0f}% "
+                  f"${l['cost_usd']:.4f} {(l.get('last_crawl') or '-')[:12]:>12s}")
+        return 0
+
+    if action == "rank":
+        print("Highest-value libraries right now:")
+        for i, l in enumerate(prioritize_libraries(store), 1):
+            print(f"  {i}. {l['name']} (score {library_score(l)}) — "
+                  f"processed={l['processed']} accepted={l['accepted']}")
+        return 0
+
+    if action == "crawl":
+        discovery = _build_discovery(settings, store, collector_db)
+        if discovery is None:
+            print("Discovery unavailable (need API key + AGENT_SYNC_TOKEN).")
+            return 1
+        libs = store.list_libraries()
+        target = [l for l in libs if l["id"] == library_id or l["name"].lower() == library_id.lower()]
+        if not target:
+            print(f"Library not found: {library_id}. Available: {', '.join(l['id'] for l in libs)}")
+            return 1
+        result = run_library(store, target[0], discovery, None, max_pages=pages)
+        print(f"Library crawl {result['library']}: pages={result['pages_processed']} "
+              f"accepted={result['accepted']} rejected={result['rejected']} cost=${result['cost_usd']:.4f}")
+        return 0
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -358,6 +425,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_metrics(settings, problems)
     if args.command == "campaign":
         return cmd_campaign(settings, problems, args.action, args.sources)
+    if args.command == "libraries":
+        return cmd_libraries(settings, problems, args.action, args.library, args.pages)
 
     parser.print_help()
     return 0
