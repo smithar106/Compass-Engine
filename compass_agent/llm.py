@@ -55,7 +55,11 @@ Extract a JSON ARRAY — one object per implementation that has a named organiza
   "outcomes": [{"metric_name": "...", "category": "time/cost/revenue/quality/...", "percentage_change": number, "unit": "..."}]
 }
 
-Only include items with a real organization and a concrete intervention. Return [] if the text describes no such implementations.
+Only include items with a real organization and a concrete intervention. Be
+generous: include bronze-level implementations (vendor-reported, partial
+outcomes) — a named organization + a described intervention is enough. Skip
+generic mentions without a specific organization or intervention. Return [] only
+if the text truly describes no implementations.
 
 SOURCE TEXT:
 """

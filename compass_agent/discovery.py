@@ -241,7 +241,7 @@ class HttpFetcher(Fetcher):
             soup = BeautifulSoup(resp.text, "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
-            return " ".join(soup.get_text(" ", strip=True).split())[:12000]
+            return " ".join(soup.get_text(" ", strip=True).split())[:40000]
         except Exception as exc:
             log.warning("fetch failed for %s: %s", url, exc)
             return ""
