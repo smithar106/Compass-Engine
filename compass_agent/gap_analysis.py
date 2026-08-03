@@ -22,11 +22,13 @@ MIN_SILVER = 3
 FIELD_COVERAGE_TARGET = 0.5  # fraction of records that should carry each field
 
 # Implementation Intelligence fields a brief needs; mapped to the source types
-# that best fill them.
+# that best fill them. Business evidence (vendor case studies, engineering
+# blogs, consulting) is preferred over academic/arxiv so campaigns surface real
+# implementations with measured ROI.
 IMPLEMENTATION_FIELDS = {
-    "rollout_strategy": ["engineering_blog", "vendor_case_study", "customer_documented"],
-    "success_criteria": ["government_audited", "financial_disclosure", "peer_reviewed"],
-    "lessons_learned": ["vendor_case_study", "engineering_blog", "academic"],
+    "rollout_strategy": ["vendor_case_study", "engineering_blog", "consulting"],
+    "success_criteria": ["vendor_case_study", "government_audited", "financial_disclosure"],
+    "lessons_learned": ["vendor_case_study", "engineering_blog", "consulting"],
     "implementation_pattern": ["vendor_case_study", "engineering_blog", "consulting"],
 }
 

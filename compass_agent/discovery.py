@@ -108,13 +108,15 @@ class OpenCLISearch(SearchBackend):
         wf = campaign.workflow.replace("_", " ")
         source_types = set(campaign.source_types)
         cmds: list[str] = []
-        if source_types & {"government_audited", "financial_disclosure", "peer_reviewed", "academic"}:
-            cmds.append(f'google-scholar search "{wf} implementation outcomes" --limit 8')
-        cmds.append(f'hackernews search "{wf} case study" --limit 10')
-        cmds.append(f'reddit search "{wf} automation results" --limit 10')
-        cmds.append(f'devto search "{wf}" --limit 10')
+        # arxiv works headlessly and returns relevant business papers when framed
+        # around business process / ROI (e.g. RPA viability frameworks).
+        cmds.append(f'arxiv search "business process automation ROI implementation" --limit 8')
         if source_types & {"academic", "peer_reviewed"}:
-            cmds.append(f'arxiv search "{wf} implementation" --limit 8')
+            cmds.append(f'arxiv search "{wf} evaluation framework business" --limit 6')
+        # community adapters are public and cheap; graceful if they return nothing
+        cmds.append(f'hackernews search "{wf} ROI" --limit 10')
+        cmds.append(f'reddit search "{wf} automation results" --limit 10')
+        cmds.append(f'devto search "{wf} implementation" --limit 10')
         return cmds
 
     def search(self, query: str, max_results: int = 10) -> list[dict]:
@@ -256,27 +258,35 @@ class StubFetcher(Fetcher):
 
 # ── Source planning ──────────────────────────────────────────────────────
 
+# Business-ROI framed queries are always part of a campaign's discovery so the
+# results are evidence-driven business interventions with measured outcomes,
+# not academic algorithm papers.
+BUSINESS_ROI_QUERIES = [
+    "1000 evidence-driven business interventions that had a successful ROI",
+    "business process automation implementation ROI case study",
+    "workflow automation cost savings measured results",
+    "operational improvement ROI enterprise case study",
+    "AI implementation enterprise ROI measured outcomes",
+    "process redesign efficiency improvement results",
+]
+
+
 def build_queries(workflow: str, source_types: list[str]) -> list[str]:
-    """Build targeted search queries for a campaign, reusing the engine's
-    SearchQueryGenerator vocabulary where possible."""
-    queries: list[str] = []
-    suffixes = ["case study implementation results", "implementation outcomes", "deployment lessons learned"]
+    """Build targeted search queries for a campaign.
 
-    try:
-        from compass_collector.scraper.search.query_generator import SearchQueryGenerator
-
-        gen = SearchQueryGenerator()
-        problems = [p for p in gen.PROBLEMS if any(w in p for w in workflow.lower().split("_"))] or [workflow.replace("_", " ")]
-        interventions = gen.INTERVENTIONS[:6]
-        for problem in problems[:2]:
-            for inv in interventions[:3]:
-                queries.append(f"{problem} {inv}")
-    except Exception:
-        queries.append(workflow.replace("_", " "))
-
-    for suffix in suffixes[:2]:
-        queries.append(f"{workflow.replace('_', ' ')} {suffix}")
-    return list(dict.fromkeys(queries))
+    Every campaign includes the business-ROI query set plus a workflow-specific
+    query framed around ROI / measured results, so discovery targets real
+    implementations with outcomes. Academic/arxiv framing is only added when the
+    campaign explicitly needs academic evidence.
+    """
+    queries: list[str] = list(BUSINESS_ROI_QUERIES)
+    wf = workflow.replace("_", " ")
+    queries.append(f"{wf} automation ROI case study")
+    queries.append(f"{wf} implementation measured results")
+    source_types = set(source_types or [])
+    if source_types & {"academic", "peer_reviewed"}:
+        queries.append(f"{wf} business process evaluation framework")
+    return list(dict.fromkeys(q for q in queries if q))
 
 
 class SourcePlanner:
