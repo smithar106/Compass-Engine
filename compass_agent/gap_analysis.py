@@ -41,11 +41,35 @@ DEFAULT_DEMAND: dict[str, float] = {
     "process_automation": 0.6,
 }
 
+# Keyword → demand for free-text workflow descriptions (the v3 subset stores
+# verbose workflows like "Customer service call handling"), so business decision
+# categories outrank incidental ones even without a canonical slug.
+BUSINESS_CATEGORY_KEYWORDS: list[tuple[str, float]] = [
+    ("invoice", 0.9), ("payment", 0.85), ("reconcil", 0.75), ("billing", 0.8),
+    ("onboard", 0.8), ("ticket", 0.8), ("support", 0.75), ("service call", 0.75),
+    ("lead", 0.75), ("qualif", 0.75), ("marketing", 0.7), ("campaign", 0.7),
+    ("ci cd", 0.7), ("deploy", 0.7), ("contract", 0.65), ("rfp", 0.7),
+    ("quoting", 0.7), ("supply chain", 0.7), ("inventory", 0.7), ("logistic", 0.7),
+    ("manufactur", 0.6), ("financial close", 0.75), ("close", 0.7),
+    ("procure", 0.7), ("vendor", 0.7), ("hr", 0.65), ("recruit", 0.65),
+    ("workforce", 0.65), ("productivity", 0.6), ("document", 0.55),
+]
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _workflow_slug(workflow: Any) -> str:
     return _SLUG_RE.sub("_", str(workflow or "").strip().lower()).strip("_")
+
+
+def _keyword_demand(workflow: Any) -> float:
+    """Map a free-text workflow description onto a business demand weight."""
+    text = str(workflow or "").lower()
+    best = 0.0
+    for keyword, dem in BUSINESS_CATEGORY_KEYWORDS:
+        if keyword in text:
+            best = max(best, dem)
+    return best
 
 
 @dataclass
@@ -163,7 +187,7 @@ def analyze_gaps(records: list, demand: Optional[dict] = None) -> list[GapCatego
         coverage = {f: _coverage(recs, f) for f in IMPLEMENTATION_FIELDS}
         gap = _gap_score(len(recs), gold, silver, coverage)
         missing = _missing_fields(coverage)
-        dem = demand.get(_workflow_slug(workflow), 0.4)
+        dem = max(_keyword_demand(workflow), demand.get(_workflow_slug(workflow), 0.4))
         need = max(0, MIN_COMPARABLES - len(recs)) + max(0, MIN_GOLD - gold)
         categories.append(
             GapCategory(
