@@ -263,6 +263,14 @@ def compute_context_similarity(query: ContextQuery, record: Any, metrics: list =
     if isinstance(comps, dict):
         record_workflow = str(comps.get("workflow") or "")
     wf_raw = score_workflow_similarity(query.workflow, record_workflow)
+    # keyword containment: query slugs ("invoice_processing") vs free-text record
+    # workflows ("Order Entry, Invoicing...") — a significant query term present
+    # in the record workflow text is a strong workflow signal.
+    if query.workflow and record_workflow:
+        q_terms = [t for t in re.split(r"[_\-\s]+", query.workflow.lower()) if len(t) >= 4]
+        r_lower = record_workflow.lower()
+        if q_terms and any(t in r_lower for t in q_terms):
+            wf_raw = max(wf_raw, 0.9)
     _add("workflow", wf_raw)
 
     # operational-function fit
