@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("metrics", help="Print enrichment cost/rejection/richness metrics from the agent store")
     camp = sub.add_parser("campaign", help="Evidence Operations: inspect gaps, plan/run targeted evidence campaigns")
-    camp.add_argument("action", choices=["plan", "list", "run"], help="campaign action")
+    camp.add_argument("action", choices=["plan", "list", "run", "archive"], help="campaign action")
     camp.add_argument("--sources", type=int, default=3, help="max sources to discover per run")
     return parser
 
@@ -298,10 +298,19 @@ def cmd_campaign(settings: Settings, problems: list[str], action: str, sources: 
             return 0
         for c in campaigns:
             print(
-                f"  {c['id'][:8]} {c['status']:<9s} {c['workflow']:<28s} "
+                f"  {c['id'][:8]} {c['status']:<9s} {c['workflow'][:40]:<42s} "
                 f"discovered={c['discovered']} accepted={c['accepted']} rejected={c['rejected']} "
                 f"cost=${c['cost_usd']:.4f}"
             )
+        return 0
+
+    if action == "archive":
+        archived = 0
+        for c in store.list_campaigns():
+            if c["status"] != "archived":
+                store.update_campaign(c["id"], status="archived")
+                archived += 1
+        print(f"Archived {archived} campaign(s).")
         return 0
 
     if action == "run":
