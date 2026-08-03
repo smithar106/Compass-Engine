@@ -18,6 +18,7 @@ import sqlalchemy
 import compass_collector.models.intervention  # noqa: F401
 import compass_collector.models.organization  # noqa: F401
 import compass_collector.models.analysis_session  # noqa: F401
+import compass_collector.models.outcome  # noqa: F401
 from compass_collector.database import Base
 from compass_collector.models.intervention import InterventionRecord
 
@@ -185,3 +186,34 @@ class TestIngestEndpoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutcomeEndpoint(unittest.TestCase):
+    def test_record_and_list_outcome(self):
+        from compass_collector.api.outcome_router import OutcomeRequest, record_outcome, list_outcomes
+
+        with patch("compass_collector.api.outcome_router.get_session", side_effect=lambda: _TestSession()):
+            result = record_outcome(OutcomeRequest(
+                recommendation_id="rec-1",
+                organization_name="Acme",
+                accepted=True,
+                implemented_intervention="AI ticketing",
+                blueprint_followed=True,
+                realized_cost=120000.0,
+                would_recommend_same=True,
+            ))
+            self.assertEqual(result["status"], "recorded")
+
+        with patch("compass_collector.api.outcome_router.get_session", side_effect=lambda: _TestSession()):
+            listing = list_outcomes(limit=10)
+        self.assertEqual(listing["total"], 1)
+        self.assertEqual(listing["outcomes"][0]["organization_name"], "Acme")
+        self.assertEqual(listing["outcomes"][0]["realized_cost"], 120000.0)
+
+    def test_missing_recommendation_rejected(self):
+        from compass_collector.api.outcome_router import OutcomeRequest, record_outcome
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as ctx:
+            record_outcome(OutcomeRequest(recommendation_id=""))
+        self.assertEqual(ctx.exception.status_code, 400)

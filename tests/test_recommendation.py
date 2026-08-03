@@ -9,6 +9,7 @@ from compass_collector.api.service import (
     _generate_specific_intervention, _build_ranking_explanation,
     _build_assumptions_detail, _build_information_gaps, _build_next_validation_step,
     _normalize_metric_name, _normalize_metric_value, _is_company_wide_metric,
+    _build_trace, _build_counterevidence,
 )
 from compass_collector.api.report import generate_report_html
 
@@ -232,3 +233,43 @@ class TestReportGeneration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRecommendationTrace(unittest.TestCase):
+    def _comparable(self, org, status="successful", tier="gold", dims=None, size=1000):
+        return ComparableEvidence(
+            record_id=org, organization=org, intervention=f"{org} automation",
+            implementation_status=status, evidence_tier=tier,
+            organization_size=size,
+            similarity_dimensions=dims or {"workflow": {"raw": 0.9}, "problem": {"raw": 0.8}},
+            normalized_metrics=[],
+        )
+
+    def test_build_trace_primary_reasons_and_uncertainty(self):
+        comps = [
+            self._comparable("A", dims={"workflow": {"raw": 0.92}, "problem": {"raw": 0.7}}, size=0),
+            self._comparable("B", dims={"workflow": {"raw": 0.88}, "problem": {"raw": 0.6}}, size=0),
+            self._comparable("C", size=0),  # no size data
+            self._comparable("D", size=0),
+        ]
+        trace = _build_trace(comps, total=4, gold=2, silver=1, req=None)
+        self.assertIsNotNone(trace)
+        self.assertEqual(trace.evidence["gold"], 2)
+        self.assertTrue(trace.primary_reasons)  # top factor first
+        self.assertEqual(trace.primary_reasons[0].factor, "workflow")
+        # sparse size coverage → uncertainty about employee scale
+        self.assertIn("employee scale", trace.primary_uncertainty)
+
+    def test_build_counterevidence_surfaces_failed_comparables(self):
+        comps = [
+            self._comparable("Good", status="successful", tier="gold"),
+            self._comparable("Bad", status="failed", tier="bronze"),
+        ]
+        out = _build_counterevidence(comps)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].organization, "Bad")
+        self.assertIn("failed", out[0].reason)
+
+    def test_build_counterevidence_empty_when_all_positive(self):
+        comps = [self._comparable("Good", status="successful", tier="gold")]
+        self.assertEqual(_build_counterevidence(comps), [])

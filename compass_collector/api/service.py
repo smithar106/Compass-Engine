@@ -26,6 +26,9 @@ from compass_collector.api.schemas import (
     Assumption,
     InformationGap,
     NextValidationStep,
+    RecommendationTrace,
+    TraceFactor,
+    Counterevidence,
 )
 
 # ---------------------------------------------------------------------------
@@ -1108,6 +1111,80 @@ def _build_next_validation_step(rank: int, category_id: str, comparables_total: 
 # Risk engine
 # ---------------------------------------------------------------------------
 
+def _build_trace(comparables, total: int, gold: int, silver: int, req) -> Optional[RecommendationTrace]:
+    """Retained defensibility trace: primary factor reasons, evidence counts,
+    and the primary uncertainty (sparse comparable orgs at the customer's
+    employee scale)."""
+    if not comparables:
+        return None
+
+    # aggregate the top comparables' similarity dimensions into primary reasons
+    from collections import defaultdict
+
+    factor_totals: dict[str, list] = defaultdict(list)
+    for c in comparables[:5]:
+        dims = c.similarity_dimensions or {}
+        if isinstance(dims, dict):
+            for factor, val in dims.items():
+                try:
+                    raw = val["raw"] if isinstance(val, dict) else float(val)
+                    factor_totals[factor].append(raw)
+                except (TypeError, ValueError, KeyError):
+                    pass
+    reasons = []
+    for factor, vals in sorted(factor_totals.items(), key=lambda x: -max(x[1])):
+        reasons.append(
+            TraceFactor(factor=factor, raw=round(max(vals), 2), weighted=round(max(vals), 2))
+        )
+
+    mixed = max(0, total - gold - silver)
+    uncertainty = ""
+    size_covered = sum(
+        1 for c in comparables if (c.organization_size or 0) > 0
+    )
+    if size_covered < 2:
+        uncertainty = "Few comparable organizations at the customer's employee scale"
+    elif mixed > 0:
+        uncertainty = f"{mixed} comparable implementation(s) reported mixed or negative outcomes"
+
+    return RecommendationTrace(
+        primary_reasons=reasons[:5],
+        evidence={"gold": gold, "silver": silver, "mixed": mixed, "total": total},
+        primary_uncertainty=uncertainty,
+        comparable_count=total,
+    )
+
+
+def _build_counterevidence(comparables) -> list[Counterevidence]:
+    """Surface evidence AGAINST the leading recommendation: comparables with
+    failed/abandoned implementations or negative outcome directions."""
+    out: list[Counterevidence] = []
+    for c in comparables:
+        status = (c.implementation_status or "").lower()
+        reason = ""
+        if status in ("failed", "abandoned"):
+            reason = f"{c.organization} attempted {c.intervention[:60]} but the implementation was {status}"
+        else:
+            for m in c.normalized_metrics:
+                val = (m.get("value") or "").rstrip("%")
+                direction = m.get("direction", "")
+                try:
+                    num = float(val)
+                except (TypeError, ValueError):
+                    continue
+                if num > 0 and direction == "negative":
+                    reason = f"{c.organization} reported {num:.0f}% decline in {m.get('metric', 'outcome')}"
+                elif num < 0 and direction == "positive":
+                    reason = f"{c.organization} reported {abs(num):.0f}% decline in {m.get('metric', 'outcome')}"
+                if reason:
+                    break
+        if reason:
+            out.append(Counterevidence(organization=c.organization, intervention=c.intervention[:80], reason=reason))
+            if len(out) >= 3:
+                break
+    return out
+
+
 def _build_risks(
     category_id: str,
     comparables: list[ComparableEvidence],
@@ -1346,6 +1423,8 @@ def _build_recommendations(
             assumptions_detail=assumptions_detail,
             information_gaps=information_gaps,
             next_validation_step=next_step,
+            trace=_build_trace(comparables, total, gold, silver, req),
+            counterevidence=_build_counterevidence(comparables),
         )
         ranked.append(rec)
 

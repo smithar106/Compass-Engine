@@ -151,6 +151,29 @@ class WhyRankedFirst(BaseModel):
     alternative_differences: list[dict] = []
 
 
+class TraceFactor(BaseModel):
+    factor: str = ""
+    raw: float = 0.0
+    weighted: float = 0.0
+
+
+class RecommendationTrace(BaseModel):
+    """Internal defensibility trace for a recommendation (retained, not
+    necessarily shown in the customer UI)."""
+    primary_reasons: list[TraceFactor] = Field(default_factory=list)
+    evidence: dict = Field(default_factory=dict)          # gold/silver/mixed counts
+    primary_uncertainty: str = ""
+    comparable_count: int = 0
+
+
+class Counterevidence(BaseModel):
+    """Evidence AGAINST the leading recommendation — differentiates Compass
+    from software that only rationalizes its top pick."""
+    organization: str = ""
+    intervention: str = ""
+    reason: str = ""
+
+
 class AlternativeComparison(BaseModel):
     category: str = ""
     specific_intervention: str = ""
@@ -279,6 +302,8 @@ class Recommendation(BaseModel):
     why_ranked_first: Optional[WhyRankedFirst] = None
     alternative_comparison: Optional[AlternativeComparison] = None
     comparable_implementations: list[ComparableEvidence] = []
+    trace: Optional[RecommendationTrace] = None
+    counterevidence: list[Counterevidence] = Field(default_factory=list)
     risks: list[dict] = []
     alternatives_considered: list[AlternativeConsidered] = []
     assumptions_detail: list[Assumption] = []

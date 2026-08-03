@@ -37,13 +37,17 @@ def load_records(db_path: str, limit: Optional[int] = None) -> list:
         except sqlite3.Error:
             return []
         sql = (
-            "SELECT id, intervention_components, problem_business_function,"
-            " evidence_level, rollout_strategy, success_criteria, lessons_learned,"
-            " implementation_pattern FROM intervention_records"
+            "SELECT id, organization_name, intervention_components,"
+            " problem_business_function, organization_normalized, evidence_level,"
+            " rollout_strategy, success_criteria, lessons_learned,"
+            " implementation_pattern, intervention_families, result_status"
+            " FROM intervention_records"
             " LIMIT ?" if limit else
-            "SELECT id, intervention_components, problem_business_function,"
-            " evidence_level, rollout_strategy, success_criteria, lessons_learned,"
-            " implementation_pattern FROM intervention_records"
+            "SELECT id, organization_name, intervention_components,"
+            " problem_business_function, organization_normalized, evidence_level,"
+            " rollout_strategy, success_criteria, lessons_learned,"
+            " implementation_pattern, intervention_families, result_status"
+            " FROM intervention_records"
         )
         params = (limit,) if limit else ()
         rows = conn.execute(sql, params).fetchall()
@@ -57,9 +61,19 @@ def load_records(db_path: str, limit: Optional[int] = None) -> list:
                     comps = _json.loads(comps)
                 except Exception:
                     comps = {}
+            norm = r["organization_normalized"]
+            if isinstance(norm, str):
+                import json as _json
+
+                try:
+                    norm = _json.loads(norm)
+                except Exception:
+                    norm = {}
             records.append(
                 NS(
                     id=r["id"],
+                    organization_name=r["organization_name"] or "",
+                    organization_normalized=norm if isinstance(norm, dict) else {},
                     intervention_components=comps if isinstance(comps, dict) else {},
                     problem_business_function=r["problem_business_function"] or [],
                     evidence_level=r["evidence_level"] or "",
@@ -67,6 +81,8 @@ def load_records(db_path: str, limit: Optional[int] = None) -> list:
                     success_criteria=r["success_criteria"] or [],
                     lessons_learned=r["lessons_learned"] or [],
                     implementation_pattern=r["implementation_pattern"] or [],
+                    intervention_families=r["intervention_families"] or [],
+                    result_status=r["result_status"] or "",
                 )
             )
         return records

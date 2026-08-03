@@ -55,6 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     lib.add_argument("action", choices=["status", "crawl", "rank"], help="library action")
     lib.add_argument("--library", type=str, default="", help="library id to crawl")
     lib.add_argument("--pages", type=int, default=5, help="max pages per library crawl")
+    ev = sub.add_parser("eval", help="Retrieval evaluation: recall, sensitivity, weight stability")
+    ev.add_argument("action", choices=["retrieval", "sensitivity"], help="eval action")
     return parser
 
 
@@ -402,6 +404,39 @@ def cmd_libraries(settings: Settings, problems: list[str], action: str, library_
     return 0
 
 
+def cmd_eval(settings: Settings, problems: list[str], action: str) -> int:
+    if problems:
+        return _print_config_errors(problems)
+    from compass_agent.db import ensure_collector_db
+    from compass_agent.evidence_ops import load_records
+    from compass_agent.retrieval_eval import (
+        field_sensitivity,
+        print_eval_report,
+        run_retrieval_eval,
+        weight_sensitivity,
+    )
+
+    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if not collector_db:
+        print("No collector DB available (AGENT_CANDIDATE_DB).")
+        return 1
+    records = load_records(collector_db)
+    if not records:
+        print("No records to evaluate.")
+        return 1
+    print(f"Evaluating against {len(records)} records.")
+    if action == "retrieval":
+        print_eval_report(run_retrieval_eval(records))
+    elif action == "sensitivity":
+        print("Field sensitivity (top-25 rank displacement / top-1 flip rate):")
+        for field, res in field_sensitivity(records).items():
+            print(f"  {field}: rank_delta={res['rank_delta']} top1_flip={res['top1_flip_rate']}")
+        print("\nWeight sensitivity (top-25 rank displacement per ±0.05 perturb):")
+        for w, delta in weight_sensitivity(records).items():
+            print(f"  {w}: {delta}")
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -428,6 +463,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_campaign(settings, problems, args.action, args.sources)
     if args.command == "libraries":
         return cmd_libraries(settings, problems, args.action, args.library, args.pages)
+    if args.command == "eval":
+        return cmd_eval(settings, problems, args.action)
 
     parser.print_help()
     return 0

@@ -34,6 +34,7 @@ from compass_collector.api.analyze_router import router as analyze_router
 from compass_collector.api.walkthrough_router import router as walkthrough_router
 from compass_collector.api.organization_router import router as organization_router
 from compass_collector.api.enrichment_router import router as enrichment_router
+from compass_collector.api.outcome_router import router as outcome_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compass-engine")
@@ -49,6 +50,7 @@ app.include_router(analyze_router)
 app.include_router(walkthrough_router)
 app.include_router(organization_router)
 app.include_router(enrichment_router)
+app.include_router(outcome_router)
 
 _metadata_cache = None
 
