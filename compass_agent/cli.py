@@ -369,12 +369,13 @@ def cmd_libraries(settings: Settings, problems: list[str], action: str, library_
         print(f"Implementation Intelligence Library — Source Library health")
         print(f"  libraries: {len(libs)} | pages processed: {total_processed} | "
               f"accepted: {total_accepted} | cost: ${total_cost:.4f}")
-        print(f"  {'library':<28s} {'cat':<14s} {'proc':>5s} {'acc':>4s} {'rej':>4s} "
-              f"{'acc%':>5s} {'cost':>7s} {'last_crawl':>12s}")
+        print(f"  {'library':<28s} {'cat':<12s} {'acq':<10s} {'proc':>5s} {'acc':>4s} "
+              f"{'rej':>4s} {'acc%':>5s} {'cost':>7s}")
         for l in sorted(libs, key=lambda x: -library_score(x)):
-            print(f"  {l['name'][:28]:<28s} {l['category'][:14]:<14s} {l['processed']:>5d} "
-                  f"{l['accepted']:>4d} {l['rejected']:>4d} {l['acceptance_rate']*100:>4.0f}% "
-                  f"${l['cost_usd']:.4f} {(l.get('last_crawl') or '-')[:12]:>12s}")
+            acq = (l.get("acquisition") or {}).get("preferred", "static")
+            print(f"  {l['name'][:28]:<28s} {l['category'][:12]:<12s} {acq[:10]:<10s} "
+                  f"{l['processed']:>5d} {l['accepted']:>4d} {l['rejected']:>4d} "
+                  f"{l['acceptance_rate']*100:>4.0f}% ${l['cost_usd']:.4f}")
         return 0
 
     if action == "rank":

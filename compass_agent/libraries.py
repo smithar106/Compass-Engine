@@ -36,6 +36,8 @@ class SourceLibrary:
     category: str = "cloud_vendor"
     entry_urls: list = field(default_factory=list)
     estimated_quality: float = 0.5
+    acquisition: dict = field(default_factory=lambda: {"preferred": "static", "fallback": "static"})
+    api_urls: list = field(default_factory=list)
     # health metrics (persisted)
     discovered: int = 0
     processed: int = 0
@@ -47,11 +49,14 @@ class SourceLibrary:
     benchmark_contribution: float = 0.0
     last_crawl: Optional[str] = None
     next_crawl: Optional[str] = None
+    acquisition_stats: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "name": self.name, "category": self.category,
             "entry_urls": self.entry_urls, "estimated_quality": self.estimated_quality,
+            "acquisition": self.acquisition, "api_urls": self.api_urls,
+            "acquisition_stats": self.acquisition_stats,
             "discovered": self.discovered, "processed": self.processed,
             "accepted": self.accepted, "rejected": self.rejected,
             "remaining": max(0, self.discovered - self.processed),
@@ -65,53 +70,75 @@ class SourceLibrary:
 # Curated registry of the world's highest-value implementation-evidence sources.
 # Category → high, medium, or low estimated quality per implementation evidence.
 LIBRARY_REGISTRY: list[dict] = [
-    # Cloud vendors (customer story pages: high implementation density)
+    # Cloud vendors (customer story pages: high implementation density; JS-heavy
+    # and paginated → FetchFox browser automation preferred)
     {"id": "aws", "name": "AWS Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://aws.amazon.com/solutions/case-studies/", "https://aws.amazon.com/customers/"], "estimated_quality": 0.85},
+     "entry_urls": ["https://aws.amazon.com/solutions/case-studies/", "https://aws.amazon.com/customers/"],
+     "estimated_quality": 0.85, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "microsoft", "name": "Microsoft Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://customers.microsoft.com/en-us/"], "estimated_quality": 0.85},
+     "entry_urls": ["https://customers.microsoft.com/en-us/"],
+     "estimated_quality": 0.85, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "google", "name": "Google Cloud Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://cloud.google.com/customers"], "estimated_quality": 0.85},
+     "entry_urls": ["https://cloud.google.com/customers"],
+     "estimated_quality": 0.85, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "salesforce", "name": "Salesforce Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://www.salesforce.com/customer-stories/"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www.salesforce.com/customer-stories/"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "servicenow", "name": "ServiceNow Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://www.servicenow.com/customers.html"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www.servicenow.com/customers.html"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "snowflake", "name": "Snowflake Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://www.snowflake.com/en/customers/"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www.snowflake.com/en/customers/"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "databricks", "name": "Databricks Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://www.databricks.com/customers"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www.databricks.com/customers"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "sap", "name": "SAP Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://www.sap.com/about/customer-stories.html"], "estimated_quality": 0.75},
+     "entry_urls": ["https://www.sap.com/about/customer-stories.html"],
+     "estimated_quality": 0.75, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "oracle", "name": "Oracle Customer Stories", "category": "cloud_vendor",
-     "entry_urls": ["https://www.oracle.com/customers/"], "estimated_quality": 0.75},
+     "entry_urls": ["https://www.oracle.com/customers/"],
+     "estimated_quality": 0.75, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     # Consulting (deep implementation intelligence)
     {"id": "accenture", "name": "Accenture Case Studies", "category": "consulting",
-     "entry_urls": ["https://www.accenture.com/us-en/industries", "https://www.accenture.com/us-en/case-studies-index"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www.accenture.com/us-en/industries", "https://www.accenture.com/us-en/case-studies-index"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "mckinsey", "name": "McKinsey Insights", "category": "consulting",
-     "entry_urls": ["https://www.mckinsey.com/capabilities/operations"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www.mckinsey.com/capabilities/operations"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "deloitte", "name": "Deloitte Insights", "category": "consulting",
-     "entry_urls": ["https://www2.deloitte.com/us/en/insights.html"], "estimated_quality": 0.8},
+     "entry_urls": ["https://www2.deloitte.com/us/en/insights.html"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "bcg", "name": "BCG Publications", "category": "consulting",
-     "entry_urls": ["https://www.bcg.com/publications"], "estimated_quality": 0.8},
-    # Government / audit (highest provenance)
+     "entry_urls": ["https://www.bcg.com/publications"],
+     "estimated_quality": 0.8, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
+    # Government / audit (highest provenance; some sites block headless HTTP)
     {"id": "gao", "name": "US GAO Reports", "category": "government",
-     "entry_urls": ["https://www.gao.gov/reports"], "estimated_quality": 0.95},
+     "entry_urls": ["https://www.gao.gov/reports"],
+     "estimated_quality": 0.95, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "oecd", "name": "OECD Digital Government", "category": "government",
-     "entry_urls": ["https://www.oecd.org/digital/"], "estimated_quality": 0.9},
+     "entry_urls": ["https://www.oecd.org/digital/"],
+     "estimated_quality": 0.9, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "nao", "name": "UK NAO Reports", "category": "government",
-     "entry_urls": ["https://www.nao.org.uk/reports/"], "estimated_quality": 0.95},
+     "entry_urls": ["https://www.nao.org.uk/reports/"],
+     "estimated_quality": 0.95, "acquisition": {"preferred": "fetchfox", "fallback": "static"}},
     {"id": "nist", "name": "NIST", "category": "government",
-     "entry_urls": ["https://www.nist.gov/artificial-intelligence"], "estimated_quality": 0.9},
+     "entry_urls": ["https://www.nist.gov/artificial-intelligence"],
+     "estimated_quality": 0.9, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "usds", "name": "US Digital Service", "category": "government",
-     "entry_urls": ["https://www.usds.gov/our-work"], "estimated_quality": 0.85},
+     "entry_urls": ["https://www.usds.gov/our-work"],
+     "estimated_quality": 0.85, "acquisition": {"preferred": "static", "fallback": "fetchfox"}},
     {"id": "gds", "name": "UK GDS Blog", "category": "government",
-     "entry_urls": ["https://gds.blog.gov.uk/"], "estimated_quality": 0.85},
+     "entry_urls": ["https://gds.blog.gov.uk/feed/"],
+     "estimated_quality": 0.85, "acquisition": {"preferred": "rss", "fallback": "static"}},
     # Public companies (financial disclosure provenance)
     {"id": "sec", "name": "SEC Filings", "category": "public_company",
-     "entry_urls": ["https://www.sec.gov/cgi-bin/browse-edgar"], "estimated_quality": 0.9},
+     "entry_urls": ["https://www.sec.gov/cgi-bin/browse-edgar"],
+     "estimated_quality": 0.9, "acquisition": {"preferred": "direct_api", "fallback": "static"}},
     # Academic (peer-reviewed)
     {"id": "academic", "name": "Academic Implementation Studies", "category": "academic",
-     "entry_urls": ["https://arxiv.org/list/cs.CY/recent"], "estimated_quality": 0.7},
+     "entry_urls": ["https://arxiv.org/list/cs.CY/recent"],
+     "estimated_quality": 0.7, "acquisition": {"preferred": "static", "fallback": "rss"}},
 ]
 
 
@@ -119,6 +146,8 @@ def load_library(entry: dict) -> SourceLibrary:
     return SourceLibrary(
         id=entry["id"], name=entry["name"], category=entry.get("category", ""),
         entry_urls=entry.get("entry_urls", []), estimated_quality=entry.get("estimated_quality", 0.5),
+        acquisition=entry.get("acquisition") or {"preferred": "static", "fallback": "static"},
+        api_urls=entry.get("api_urls", []),
     )
 
 
@@ -183,42 +212,60 @@ def _discover_pages(store: AgentStore, library: dict, fetcher, limit: int = 25) 
 
 
 def run_library(store: AgentStore, library: dict, pipeline, campaign, max_pages: int = 5) -> dict:
-    """Discover → crawl → extract → validate → publish for one Source Library.
+    """Discover → crawl → extract → validate → publish for one Source Library
+    using its chosen acquisition strategy (FetchFox / static / RSS / direct API /
+    OpenCLI), falling back to the static crawler when the strategy yields nothing.
 
     Persists per-page progress so already-processed pages are never re-crawled,
-    and updates the library's health metrics (discovered/processed/accepted/
-    rejected/cost/acceptance rate).
+    updates the library's health metrics, and records per-strategy performance so
+    the planner learns which acquisition works best for this library.
     """
+    from compass_agent.acquisition import (
+        StaticAcquisition,
+        build_strategy,
+        pick_strategy,
+        record_acquisition_result,
+    )
     from compass_agent.discovery import DiscoveryReport
 
     fetcher = pipeline.fetcher
-    pending = store.pending_library_pages(library["id"], limit=max_pages)
-    if not pending:
-        _discover_pages(store, library, fetcher)
-        pending = store.pending_library_pages(library["id"], limit=max_pages)
+    strategy_name = pick_strategy(library, store)
+    strategy = build_strategy(strategy_name, fetcher, store)
+    candidates = strategy.crawl(library, max_pages)
+    # fallback to the static crawler when the chosen strategy yields nothing
+    if not candidates and strategy_name != "static":
+        strategy = StaticAcquisition(fetcher, store)
+        candidates = strategy.crawl(library, max_pages)
+        strategy_name = "static"
 
     report = DiscoveryReport(
         workflow=campaign.workflow if campaign else "library",
         business_function=campaign.business_function if campaign else "operations",
     )
-    report.sources_discovered = len(pending)
+    report.sources_discovered = len(candidates)
 
-    for page in pending[:max_pages]:
+    for candidate in candidates:
         if pipeline.budget_gate is not None and not pipeline.budget_gate():
             break
+        if isinstance(candidate, dict) and candidate.get("organization_name"):
+            # structured item (FetchFox / direct API) → validate + ingest
+            pipeline._ingest_payload(
+                candidate,
+                {"url": candidate.get("url", ""), "title": candidate.get("organization_name", "")},
+                campaign,
+                report,
+            )
+            continue
+        page = {"url": candidate.get("url", ""), "title": candidate.get("title", "")}
         text = fetcher.fetch(page["url"], page.get("title", ""))
         if len(text.strip()) < 120:
             report.rejected += 1
-            store.mark_library_page(page["url"], "rejected")
             continue
-        candidate = {"url": page["url"], "title": page.get("title", "")}
-        accepted = pipeline._extract_and_ingest(text, candidate, campaign, report)
-        store.mark_library_page(page["url"], "accepted" if accepted else "rejected")
+        pipeline._extract_and_ingest(text, page, campaign, report)
 
-    # update library health metrics (base on current store state, not the
-    # possibly-stale caller dict)
+    # update library health metrics (base on current store state)
     cur = next((l for l in store.list_libraries() if l["id"] == library["id"]), library)
-    processed = cur["processed"] + len(pending)
+    processed = cur["processed"] + report.sources_discovered
     accepted_total = cur["accepted"] + report.accepted
     rejected_total = cur["rejected"] + report.rejected
     store.update_library(
@@ -231,8 +278,13 @@ def run_library(store: AgentStore, library: dict, pipeline, campaign, max_pages:
         acceptance_rate=round(accepted_total / max(processed, 1), 3),
         last_crawl=_now(),
     )
+    record_acquisition_result(
+        store, library["id"], strategy_name,
+        accepted=report.accepted, cost=report.cost_usd, pages=report.sources_discovered,
+    )
     return {
         "library": library["id"],
+        "strategy": strategy_name,
         "pages_processed": report.sources_discovered,
         "accepted": report.accepted,
         "rejected": report.rejected,

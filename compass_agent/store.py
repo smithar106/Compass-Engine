@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS libraries (
     benchmark_contribution REAL NOT NULL DEFAULT 0,
     last_crawl             TEXT,
     next_crawl             TEXT,
+    acquisition            TEXT NOT NULL DEFAULT '{}',
+    acquisition_stats      TEXT NOT NULL DEFAULT '{}',
+    api_urls               TEXT NOT NULL DEFAULT '[]',
     created_at             TEXT NOT NULL,
     updated_at             TEXT NOT NULL
 );
@@ -111,6 +114,16 @@ class AgentStore:
 
     def _init_schema(self) -> None:
         self.conn.executescript(_SCHEMA)
+        # lightweight migration for existing stores (additive columns)
+        for column, decl in (
+            ("acquisition", "TEXT NOT NULL DEFAULT '{}'"),
+            ("acquisition_stats", "TEXT NOT NULL DEFAULT '{}'"),
+            ("api_urls", "TEXT NOT NULL DEFAULT '[]'"),
+        ):
+            try:
+                self.conn.execute(f"ALTER TABLE libraries ADD COLUMN {column} {decl}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
         self.conn.commit()
 
     def close(self) -> None:
@@ -293,8 +306,9 @@ class AgentStore:
                 "INSERT OR REPLACE INTO libraries (id, name, category, entry_urls,"
                 " estimated_quality, discovered, processed, accepted, rejected,"
                 " remaining, cost_usd, acceptance_rate, avg_implementation_fields,"
-                " benchmark_contribution, last_crawl, next_crawl, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " benchmark_contribution, last_crawl, next_crawl, acquisition,"
+                " acquisition_stats, api_urls, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     library["id"], library["name"], library.get("category", ""),
                     json.dumps(library.get("entry_urls", [])),
@@ -306,6 +320,9 @@ class AgentStore:
                     library.get("avg_implementation_fields", 0.0),
                     library.get("benchmark_contribution", 0.0),
                     library.get("last_crawl"), library.get("next_crawl"),
+                    json.dumps(library.get("acquisition") or {}),
+                    json.dumps(library.get("acquisition_stats") or {}),
+                    json.dumps(library.get("api_urls", [])),
                     library.get("created_at") or _now(), library.get("updated_at") or _now(),
                 ),
             )
@@ -316,6 +333,9 @@ class AgentStore:
         for row in rows:
             data = dict(row)
             data["entry_urls"] = json.loads(data["entry_urls"] or "[]")
+            data["api_urls"] = json.loads(data["api_urls"] or "[]")
+            data["acquisition"] = json.loads(data["acquisition"] or "{}")
+            data["acquisition_stats"] = json.loads(data["acquisition_stats"] or "{}")
             out.append(data)
         return out
 
@@ -357,6 +377,12 @@ class AgentStore:
                 "UPDATE library_pages SET status = ?, accepted_record = ?, processed_at = ? WHERE url = ?",
                 (status, accepted_record, _now(), url),
             )
+
+    def library_page_status(self, url: str) -> str:
+        row = self.conn.execute(
+            "SELECT status FROM library_pages WHERE url = ?", (url,)
+        ).fetchone()
+        return row[0] if row else "discovered"
 
 
 def format_budget_state(budget) -> dict:

@@ -13,6 +13,7 @@ from compass_agent.libraries import (
     run_library,
 )
 from compass_agent.store import AgentStore
+from compass_agent.acquisition import pick_strategy
 
 from tests.test_evidence_ops import FakeLLM, StubIngest, StubSearch
 
@@ -96,6 +97,64 @@ class TestLibraries(unittest.TestCase):
         run_library(store, aws, make_pipeline(), None, max_pages=2)
         processed_after_second = next(l for l in store.list_libraries() if l["id"] == "aws")["processed"]
         self.assertGreater(processed_after_second, processed_after_first)
+
+
+class TestAcquisitionSelection(unittest.TestCase):
+    def test_preferred_strategy_used_by_default(self):
+        lib = {"id": "aws", "acquisition": {"preferred": "fetchfox", "fallback": "static"}, "acquisition_stats": {}}
+        self.assertEqual(pick_strategy(lib, AgentStore()), "fetchfox")
+
+    def test_learns_to_fallback_after_zero_acceptances(self):
+        lib = {
+            "id": "aws",
+            "acquisition": {"preferred": "fetchfox", "fallback": "static"},
+            "acquisition_stats": {"fetchfox": {"runs": 2, "accepted": 0, "cost": 0.1, "pages": 10}},
+        }
+        self.assertEqual(pick_strategy(lib, AgentStore()), "static")
+
+    def test_keeps_preferred_when_accepting(self):
+        lib = {
+            "id": "aws",
+            "acquisition": {"preferred": "fetchfox", "fallback": "static"},
+            "acquisition_stats": {"fetchfox": {"runs": 3, "accepted": 5, "cost": 0.1, "pages": 10}},
+        }
+        self.assertEqual(pick_strategy(lib, AgentStore()), "fetchfox")
+
+    def test_structured_items_are_ingested_directly(self):
+        """A FetchFox-style strategy returning structured implementation items
+        should be validated + ingested without an intermediate fetch."""
+        from unittest.mock import patch
+
+        store = AgentStore()
+        ensure_libraries(store)
+        aws = next(l for l in store.list_libraries() if l["id"] == "aws")
+
+        class StructuredStrategy:
+            name = "fetchfox"
+
+            def crawl(self, library, max_pages):
+                return [
+                    {
+                        "organization_name": "FetchCorp",
+                        "workflow": "ticketing",
+                        "intervention_title": "AI support automation",
+                        "intervention_category": "AI",
+                        "evidence_tier": "silver",
+                        "rollout_strategy": "Pilot then rollout",
+                        "success_criteria": ["response < 1h"],
+                        "lessons_learned": ["train early"],
+                        "outcomes": [{"metric_name": "response_time", "category": "time", "percentage_change": -50}],
+                    }
+                ]
+
+        with patch("compass_agent.acquisition.build_strategy", return_value=StructuredStrategy()):
+            result = run_library(store, aws, make_pipeline(), None, max_pages=5)
+
+        self.assertEqual(result["strategy"], "fetchfox")
+        self.assertGreater(result["accepted"], 0)
+        # learning stats recorded for the fetchfox strategy
+        updated = next(l for l in store.list_libraries() if l["id"] == "aws")
+        self.assertGreater((updated.get("acquisition_stats") or {}).get("fetchfox", {}).get("accepted", 0), 0)
 
 
 if __name__ == "__main__":

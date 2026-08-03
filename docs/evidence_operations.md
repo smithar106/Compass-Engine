@@ -63,6 +63,24 @@ campaign right now?" using: benchmark impact, implementation density, source
 quality, organization/workflow diversity, cost, and acceptance rate. It prefers
 campaigns that increase diversity, not just volume.
 
+## Acquisition strategies
+
+The planner chooses an acquisition strategy per Source Library (preferred +
+fallback), and **learns which strategy performs best** for each library over
+time (accepted records, cost per accepted):
+
+- **FetchFox browser automation** — the primary strategy for JavaScript-heavy /
+  interactive / paginated customer-story libraries (AWS, Microsoft, Google,
+  Salesforce, ServiceNow, Snowflake, Databricks). A generated FetchFox workflow
+  crawls the library and extracts implementation evidence directly from each
+  customer story. Never used for broad web search.
+- **Static crawler** — the existing HTTP + index-expansion crawler; the general
+  fallback.
+- **OpenCLI browser** — used when a browser-bridge profile is connected.
+- **Direct API** — for libraries with a JSON/API endpoint (e.g. SEC EDGAR).
+- **RSS** — for blogs/feeds (e.g. UK GDS blog).
+- **General web search** — last-resort fallback for a campaign.
+
 ## Publish gate
 
 A discovered record is **accepted** only if: no near-duplicate exists, schema +
@@ -84,5 +102,9 @@ Compass becomes the world's best implementation intelligence library. Every
 month the library grows larger, better, more diverse, more defensible, and more
 useful. The success criterion is not collecting more documents — it is producing
 better Executive Decision Briefs than any consultant, AI system, or internal
-team could produce. Target: 5,000 → 10,000+ high-quality implementation records.
+team could produce. Architectural target: **50,000** high-quality,
+implementation-rich records across industries and workflows — a scale where
+Compass competes not with consultants on individual projects, but with something
+no consulting firm has: a continuously expanding, structured implementation
+intelligence library that gets better every day. (Path: 5,000 → 10,000 → 50,000.)
 
