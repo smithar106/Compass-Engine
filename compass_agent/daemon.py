@@ -345,7 +345,7 @@ class Daemon:
                         store=self.store,
                         collector_db=self.collector_db,
                         discovery=self.discovery,
-                        max_sources=min(self.settings.max_docs_per_cycle, 3),
+                        max_sources=min(self.settings.max_docs_per_cycle, 10),
                     )
                     processed += ops.get("discovered", 0)
                     self.logger.info(

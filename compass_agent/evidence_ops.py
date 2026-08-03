@@ -21,7 +21,7 @@ from compass_agent.store import AgentStore
 
 log = logging.getLogger("compass_agent.evidence_ops")
 
-DEFAULT_DISCOVER_PER_CYCLE = 3
+DEFAULT_DISCOVER_PER_CYCLE = 8
 
 
 def backfill_collector_db(db_path: str) -> int:
@@ -199,7 +199,7 @@ def run_evidence_ops(
         try:
             lib_result = run_library(
                 store, libraries[0], discovery, campaign,
-                max_pages=min(max_sources, 5),
+                max_pages=min(max_sources, 10),
             )
         except Exception as exc:
             log.warning("library crawl failed for %s: %s", libraries[0]["id"], exc)
