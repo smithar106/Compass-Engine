@@ -81,11 +81,11 @@ class NullSearch(SearchBackend):
 
 
 class GoogleSearch(SearchBackend):
-    """Google search via OpenCLI's google adapter (browser-backed, yields
-    real Google SERP results with titles, URLs, and snippets).
+    """Web search via OpenCLI's DuckDuckGo adapter (headless — no browser needed).
 
-    Uses the same OpenCLI bootstrap + resolve as OpenCLISearch so it works
-    headlessly in the Railway container.
+    OpenCLI's google adapter requires Chrome/Playwright. DuckDuckGo provides
+    equivalent discovery quality with zero browser dependencies. Falls back to
+    the Python DuckDuckGo scraper if OpenCLI isn't bootstrapped.
     """
 
     _opencli: Optional[str] = None
@@ -103,40 +103,55 @@ class GoogleSearch(SearchBackend):
         return cls._opencli
 
     def build_queries(self, campaign: Campaign) -> list[str]:
-        return [f'google search "{q}" --limit 50' for q in ROI_QUERIES[:30]]
+        return [f'duckduckgo search "{q}" --limit 50' for q in ROI_QUERIES[:30]]
 
     def search(self, query: str, max_results: int = 50) -> list[dict]:
         import subprocess
 
+        # Try OpenCLI duckduckgo first (headless, no browser needed)
         exe = self._resolve_opencli()
-        if not exe:
-            return []
-        cmd = f'google search "{query}" --limit {min(max_results, 100)}'
-        try:
-            from compass_agent.opencli_bootstrap import opencli_env
+        if exe:
+            cmd = f'duckduckgo search "{query}" --limit {min(max_results, 100)}'
+            try:
+                from compass_agent.opencli_bootstrap import opencli_env
 
-            result = subprocess.run(
-                f"{exe} {cmd} -f json",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env=opencli_env(),
-            )
-            if result.returncode != 0:
-                return []
-            results = json.loads(result.stdout) if result.stdout.strip() else []
+                result = subprocess.run(
+                    f"{exe} {cmd} -f json",
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    env=opencli_env(),
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    items = json.loads(result.stdout)
+                    if isinstance(items, list) and items:
+                        out = []
+                        for item in items[:max_results]:
+                            url = (item.get("url") or "").strip()
+                            title = (item.get("title") or "").strip()
+                            if url and url.startswith(("http://", "https://")):
+                                out.append({"url": url, "title": title, "source_type": "ddg_opencli"})
+                        if out:
+                            return out
+            except Exception:
+                pass
+
+        # Fall back to Python DuckDuckGo scraper (no OpenCLI needed)
+        from compass_collector.scraper.sources.web_search import WebSearchScraper
+
+        try:
+            scraper = WebSearchScraper()
+            results = scraper.duckduckgo_search(query, max_results=max_results)
+            out = []
+            for r in results:
+                url = _clean_url(r.get("url", ""))
+                if url.startswith(("http://", "https://")):
+                    out.append({"url": url, "title": r.get("title", ""), "source_type": "ddg_scraper"})
+            return out
         except Exception as exc:
-            log.warning("google search failed %r: %s", query, exc)
+            log.warning("google/duckduckgo search failed %r: %s", query, exc)
             return []
-        out = []
-        for item in (results or [])[:max_results]:
-            url = (item.get("url") or "").strip()
-            title = (item.get("title") or "").strip()
-            snippet = (item.get("snippet") or "").strip()
-            if url and url.startswith(("http://", "https://")):
-                out.append({"url": url, "title": title, "snippet": snippet, "source_type": "google"})
-        return out
 
 
 class OpenCLISearch(SearchBackend):
