@@ -169,7 +169,7 @@ def _build_discovery(settings: Settings, store, collector_db: str):
             # case studies with real outcomes), then DuckDuckGo + curated seeds,
             # then OpenCLI for community/academic results
             backends=[GoogleSearch(), DuckDuckGoSearch(), CuratedSeedSearch()],
-            max_per_query=25,
+            max_per_query=50,
         ),
         fetcher=HttpFetcher(),
         llm=llm,

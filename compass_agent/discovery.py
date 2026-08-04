@@ -544,9 +544,8 @@ class SourcePlanner:
         ]
         self.max_per_query = max_per_query
 
-    def plan(self, campaign: Campaign, max_sources: int = 20) -> list[dict]:
+    def plan(self, campaign: Campaign, max_sources: int = 200) -> list[dict]:
         candidates: dict[str, dict] = {}
-        per_backend = max(1, max_sources // max(len(self.backends), 1)) if len(self.backends) > 1 else max_sources
         for backend in self.backends:
             if len(candidates) >= max_sources:
                 break
@@ -572,10 +571,9 @@ class SourcePlanner:
                             "source_type": result.get("source_type", "search"),
                             "query": q,
                         }
-                        added += 1
-                    if added >= per_backend or len(candidates) >= max_sources:
+                    if len(candidates) >= max_sources:
                         break
-                if added >= per_backend or len(candidates) >= max_sources:
+                if len(candidates) >= max_sources:
                     break
         return list(candidates.values())[:max_sources]
 
