@@ -163,11 +163,11 @@ def run_evidence_ops(
     max_sources: int = DEFAULT_DISCOVER_PER_CYCLE,
     min_impact: float = 0.1,
 ) -> dict:
-    """Run one Inspect→Plan→Collect pass.
+    """Run one Inspect→Plan→Discover pass.
 
-    Discovery begins with the highest-value Source Library for the active
-    campaign (from the curated library registry); general web search is only a
-    fallback when the library yields no accepted records.
+    DDG search runs first every cycle (130 ROI queries). Source Libraries are
+    a secondary pass — only if budget remains and the library hasn't been
+    crawled recently.
     """
     from compass_agent.campaign import Campaign, CampaignPlanner
     from compass_agent.libraries import ensure_libraries, prioritize_libraries, run_library
@@ -191,51 +191,51 @@ def run_evidence_ops(
     result = {"campaign": campaign.id, "workflow": campaign.workflow,
               "discovered": 0, "accepted": 0, "rejected": 0, "cost_usd": 0.0, "source": "none"}
 
-    # 1) Source Library first — the primary evidence unit.
+    # 1) DDG search first — high-volume discovery from 130 ROI queries.
+    #    Runs every cycle. Libraries are secondary.
+    try:
+        report = discovery.run(campaign, max_sources=max_sources)
+    except Exception as exc:
+        log.warning("discovery run failed: %s", exc)
+        report = None
+    if report is not None:
+        result.update({
+            "discovered": report.sources_discovered,
+            "accepted": report.accepted,
+            "rejected": report.rejected,
+            "cost_usd": round(report.cost_usd, 6),
+            "source": "ddg_search",
+        })
+        campaign.discovered += report.sources_discovered
+        campaign.accepted += report.accepted
+        campaign.rejected += report.rejected
+        campaign.cost_usd += report.cost_usd
+
+    # 2) Source Library — secondary pass, only if budget allows.
     ensure_libraries(store)
     libraries = prioritize_libraries(store)
-    lib_result = None
     if libraries:
         try:
             lib_result = run_library(
                 store, libraries[0], discovery, campaign,
-                max_pages=min(max_sources, 10),
+                max_pages=min(max_sources // 2, 10),
             )
         except Exception as exc:
             log.warning("library crawl failed for %s: %s", libraries[0]["id"], exc)
             lib_result = None
         if lib_result and lib_result["accepted"] > 0:
-            result.update({
-                "discovered": lib_result["pages_processed"],
-                "accepted": lib_result["accepted"],
-                "rejected": lib_result["rejected"],
-                "cost_usd": lib_result["cost_usd"],
-                "source": f"library:{libraries[0]['id']}",
-            })
             campaign.discovered += lib_result["pages_processed"]
             campaign.accepted += lib_result["accepted"]
             campaign.rejected += lib_result["rejected"]
             campaign.cost_usd += lib_result["cost_usd"]
-
-    # 2) General web search is the fallback (or a secondary pass).
-    if lib_result is None or lib_result["accepted"] == 0:
-        try:
-            report = discovery.run(campaign, max_sources=max_sources)
-        except Exception as exc:
-            log.warning("discovery run failed: %s", exc)
-            report = None
-        if report is not None:
-            result.update({
-                "discovered": report.sources_discovered,
-                "accepted": report.accepted,
-                "rejected": report.rejected,
-                "cost_usd": round(report.cost_usd, 6),
-                "source": "search_fallback",
-            })
-            campaign.discovered += report.sources_discovered
-            campaign.accepted += report.accepted
-            campaign.rejected += report.rejected
-            campaign.cost_usd += report.cost_usd
+            result["discovered"] += lib_result["pages_processed"]
+            result["accepted"] += lib_result["accepted"]
+            result["rejected"] += lib_result["rejected"]
+            result["cost_usd"] = round(result["cost_usd"] + lib_result["cost_usd"], 6)
+            if not result["source"].startswith("ddg"):
+                result["source"] = f"library:{libraries[0]['id']}"
+            else:
+                result["source"] += f"+library:{libraries[0]['id']}"
 
     store.update_campaign(
         campaign.id,
