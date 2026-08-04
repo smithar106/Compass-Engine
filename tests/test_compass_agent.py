@@ -119,11 +119,11 @@ class TestConfig(unittest.TestCase):
         settings, problems = Settings.from_env({"COMPASS_API_URL": "https://x.example"})
         self.assertEqual(problems, [])
         self.assertEqual(settings.llm_provider, "deepseek")
-        self.assertEqual(settings.max_daily_llm_usd, 0.50)
-        self.assertEqual(settings.max_total_llm_usd, 3.75)
-        self.assertEqual(settings.llm_concurrency, 2)
-        self.assertEqual(settings.max_docs_per_cycle, 10)
-        self.assertEqual(settings.sleep_seconds, 900)
+        self.assertEqual(settings.max_daily_llm_usd, 2.50)
+        self.assertEqual(settings.max_total_llm_usd, 10.00)
+        self.assertEqual(settings.llm_concurrency, 4)
+        self.assertEqual(settings.max_docs_per_cycle, 20)
+        self.assertEqual(settings.sleep_seconds, 600)
         self.assertFalse(settings.auto_publish)
 
     def test_auto_publish_parsing(self):

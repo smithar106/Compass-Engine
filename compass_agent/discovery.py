@@ -80,6 +80,65 @@ class NullSearch(SearchBackend):
         return []
 
 
+class GoogleSearch(SearchBackend):
+    """Google search via OpenCLI's google adapter (browser-backed, yields
+    real Google SERP results with titles, URLs, and snippets).
+
+    Uses the same OpenCLI bootstrap + resolve as OpenCLISearch so it works
+    headlessly in the Railway container.
+    """
+
+    _opencli: Optional[str] = None
+
+    @classmethod
+    def _resolve_opencli(cls) -> str:
+        if cls._opencli is None:
+            try:
+                from compass_agent.opencli_bootstrap import ensure_opencli
+
+                cls._opencli = ensure_opencli()
+            except Exception as exc:
+                cls._opencli = ""
+                log.warning("opencli resolve error for GoogleSearch: %s", exc)
+        return cls._opencli
+
+    def build_queries(self, campaign: Campaign) -> list[str]:
+        return [f'google search "{q}" --limit 50' for q in ROI_QUERIES[:30]]
+
+    def search(self, query: str, max_results: int = 50) -> list[dict]:
+        import subprocess
+
+        exe = self._resolve_opencli()
+        if not exe:
+            return []
+        cmd = f'google search "{query}" --limit {min(max_results, 100)}'
+        try:
+            from compass_agent.opencli_bootstrap import opencli_env
+
+            result = subprocess.run(
+                f"{exe} {cmd} -f json",
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=opencli_env(),
+            )
+            if result.returncode != 0:
+                return []
+            results = json.loads(result.stdout) if result.stdout.strip() else []
+        except Exception as exc:
+            log.warning("google search failed %r: %s", query, exc)
+            return []
+        out = []
+        for item in (results or [])[:max_results]:
+            url = (item.get("url") or "").strip()
+            title = (item.get("title") or "").strip()
+            snippet = (item.get("snippet") or "").strip()
+            if url and url.startswith(("http://", "https://")):
+                out.append({"url": url, "title": title, "snippet": snippet, "source_type": "google"})
+        return out
+
+
 class OpenCLISearch(SearchBackend):
     """Discovery via the engine's OpenCLI bridge (HN, Reddit, Dev.to,
     Google Scholar, ArXiv commands). Graceful no-op if opencli is unavailable.
@@ -108,6 +167,13 @@ class OpenCLISearch(SearchBackend):
         wf = campaign.workflow.replace("_", " ")
         source_types = set(campaign.source_types)
         cmds: list[str] = []
+        # Google search is highest-yield for business ROI case studies.
+        # 100 results per query, broad coverage across industries.
+        for q in ROI_QUERIES[:30]:
+            cmds.append(f'google search "{q}" --limit 50')
+        # workflow-specific Google queries
+        cmds.append(f'google search "{wf} implementation ROI case study measured results" --limit 50')
+        cmds.append(f'google search "{wf} before after metrics cost savings" --limit 50')
         # arxiv is headless and can surface relevant business frameworks, but it
         # rarely describes a named org implementation — only use it when the
         # campaign explicitly needs academic/peer-reviewed evidence.
@@ -312,6 +378,171 @@ BUSINESS_ROI_QUERIES = [
     "process redesign efficiency improvement results",
 ]
 
+# Comprehensive ROI case study queries covering all intervention types ×
+# industries. Each query targets implementation evidence with measurable
+# business outcomes. Used by Google search for high-volume discovery.
+ROI_QUERIES = [
+    # ─── CROSS-INDUSTRY ROI CASE STUDIES ───
+    "enterprise digital transformation ROI case study measured results",
+    "operational efficiency improvement cost savings case study",
+    "business process automation ROI before after metrics",
+    "technology implementation enterprise success metrics case study",
+    "organizational transformation ROI quantitative results",
+    "IT modernization cost reduction case study enterprise",
+    "system migration cost savings implementation results",
+    "process optimization ROI case study manufacturing retail finance",
+    "workflow automation return on investment enterprise case study",
+    "digital operations transformation measured outcomes company",
+    # ─── AI & MACHINE LEARNING ───
+    "AI implementation ROI enterprise case study measured outcomes",
+    "machine learning deployment cost savings business results",
+    "generative AI enterprise adoption ROI case study 2024 2025",
+    "AI customer service automation ROI contact center case study",
+    "artificial intelligence supply chain optimization ROI results",
+    "AI fraud detection implementation ROI banking financial services",
+    "machine learning predictive maintenance ROI manufacturing case study",
+    "AI inventory management optimization cost savings retail",
+    "natural language processing enterprise ROI case study",
+    "computer vision quality inspection manufacturing ROI results",
+    "AI underwriting claims processing insurance ROI case study",
+    "recommender system ecommerce revenue uplift case study ROI",
+    "AI dynamic pricing optimization revenue increase case study",
+    "chatbot customer support cost reduction implementation ROI",
+    "AI document processing accounts payable automation ROI results",
+    # ─── CLOUD & INFRASTRUCTURE ───
+    "cloud migration cost savings enterprise case study before after",
+    "on-premise to cloud total cost of ownership reduction case study",
+    "AWS migration cost savings enterprise implementation results",
+    "Azure cloud adoption enterprise ROI case study",
+    "Google Cloud migration cost optimization case study results",
+    "hybrid cloud infrastructure implementation ROI enterprise",
+    "cloud-native modernization cost savings case study enterprise",
+    "serverless architecture migration cost reduction case study",
+    "Kubernetes container orchestration ROI implementation enterprise",
+    "cloud storage optimization cost savings enterprise case study",
+    # ─── SOFTWARE & ERP ───
+    "ERP implementation ROI enterprise case study measured results",
+    "SAP implementation cost savings operational efficiency case study",
+    "Oracle ERP cloud migration ROI case study enterprise",
+    "CRM implementation ROI sales productivity increase case study",
+    "Salesforce deployment revenue uplift case study enterprise",
+    "ServiceNow implementation IT service management ROI results",
+    "Workday HR transformation ROI enterprise case study",
+    "HRIS cloud migration cost savings implementation results",
+    "financial software implementation ROI accounting efficiency",
+    "procurement automation software implementation ROI case study",
+    # ─── RPA & AUTOMATION ───
+    "robotic process automation RPA implementation ROI case study",
+    "RPA finance accounting automation cost savings enterprise",
+    "RPA healthcare claims processing automation ROI results",
+    "RPA banking insurance back office automation ROI case study",
+    "intelligent document processing automation ROI results",
+    "workflow automation low code no code platform ROI case study",
+    "business process management BPM implementation ROI results",
+    "automation center of excellence ROI enterprise case study",
+    "hyperautomation implementation enterprise ROI measured results",
+    "RPA shared services center automation cost savings case study",
+    # ─── DATA & ANALYTICS ───
+    "data warehouse modernization ROI enterprise case study",
+    "Snowflake migration cost savings analytics performance case study",
+    "data lake implementation enterprise ROI analytics results",
+    "business intelligence deployment ROI decision making case study",
+    "advanced analytics implementation revenue impact case study",
+    "real-time data streaming platform implementation ROI enterprise",
+    "data governance framework implementation ROI compliance case study",
+    "master data management implementation ROI enterprise results",
+    "customer data platform deployment marketing ROI case study",
+    "self-service analytics adoption ROI enterprise measured results",
+    # ─── CYBERSECURITY ───
+    "cybersecurity investment ROI breach prevention cost savings",
+    "zero trust architecture implementation ROI enterprise case study",
+    "security operations center SOC transformation ROI results",
+    "identity access management implementation ROI enterprise case study",
+    "endpoint detection response EDR ROI security case study",
+    "cloud security posture management CSPM ROI enterprise results",
+    "security awareness training ROI phishing reduction metrics",
+    "data loss prevention implementation ROI enterprise case study",
+    "SIEM modernization Splunk migration ROI security operation results",
+    "ransomware preparedness investment ROI enterprise case study",
+    # ─── DEV OPS & SOFTWARE DELIVERY ───
+    "DevOps transformation ROI deployment frequency quality metrics",
+    "CI/CD pipeline implementation ROI software delivery enterprise",
+    "platform engineering internal developer portal ROI case study",
+    "value stream management implementation ROI enterprise software",
+    "test automation ROI quality engineering cost savings case study",
+    "site reliability engineering SRE implementation ROI results",
+    "gitops deployment automation ROI enterprise case study",
+    "feature flag experimentation platform ROI revenue impact",
+    "chaos engineering resilience investment ROI enterprise results",
+    "developer experience platform investment ROI productivity metrics",
+    # ─── CUSTOMER EXPERIENCE ───
+    "customer experience improvement ROI revenue impact case study",
+    "call center modernization omnichannel ROI case study enterprise",
+    "customer self-service portal ROI cost reduction implementation",
+    "customer journey mapping personalization ROI conversion uplift",
+    "voice of customer program ROI retention revenue case study",
+    "Net Promoter Score improvement initiative ROI enterprise results",
+    "customer onboarding automation ROI churn reduction case study",
+    "loyalty program redesign ROI customer lifetime value case study",
+    "digital customer service transformation ROI contact center",
+    "customer success platform implementation ROI retention results",
+    # ─── SUPPLY CHAIN & LOGISTICS ───
+    "supply chain optimization ROI cost reduction enterprise case study",
+    "logistics automation warehouse management ROI implementation results",
+    "inventory optimization system implementation ROI retail case study",
+    "transportation management system TMS implementation ROI logistics",
+    "supply chain visibility platform implementation ROI enterprise",
+    "demand forecasting AI implementation ROI inventory reduction",
+    "last mile delivery optimization ROI transportation case study",
+    "procurement digital transformation ROI savings enterprise",
+    "supplier relationship management implementation ROI results",
+    "supply chain risk management investment ROI resilience case study",
+    # ─── MANUFACTURING & INDUSTRY ───
+    "smart factory Industry 4.0 implementation ROI manufacturing",
+    "lean manufacturing transformation ROI cost savings case study",
+    "digital twin implementation ROI manufacturing enterprise",
+    "IoT predictive maintenance deployment ROI manufacturing results",
+    "quality management system QMS implementation ROI case study",
+    "manufacturing execution system MES implementation ROI results",
+    "energy management optimization ROI manufacturing cost savings",
+    "asset performance management implementation ROI enterprise",
+    "connected worker platform implementation ROI manufacturing",
+    "3D printing additive manufacturing adoption ROI case study",
+    # ─── HEALTHCARE ───
+    "healthcare digital transformation ROI patient outcomes case study",
+    "EHR optimization implementation ROI healthcare provider results",
+    "telemedicine platform implementation ROI patient access results",
+    "healthcare revenue cycle management RCM optimization ROI",
+    "hospital operations automation ROI cost efficiency case study",
+    "clinical workflow automation implementation ROI healthcare",
+    "population health management platform ROI outcomes case study",
+    "patient engagement platform implementation ROI healthcare",
+    "value-based care transformation ROI healthcare organization",
+    "healthcare interoperability implementation ROI data sharing",
+    # ─── FINANCIAL SERVICES ───
+    "banking digital transformation ROI customer experience case study",
+    "fintech implementation ROI financial services case study",
+    "core banking system modernization ROI cost reduction results",
+    "payment processing optimization ROI merchant implementation",
+    "wealth management platform implementation ROI advisory results",
+    "trade processing automation ROI investment bank case study",
+    "regulatory compliance automation regtech ROI financial services",
+    "insurance claims automation implementation ROI case study",
+    "mortgage processing digital transformation ROI lending results",
+    "KYC AML compliance automation implementation ROI banking",
+    # ─── RETAIL & E-COMMERCE ───
+    "retail digital transformation ROI omnichannel case study",
+    "ecommerce platform replatforming ROI revenue uplift results",
+    "point of sale modernization implementation ROI retail",
+    "retail store technology implementation ROI associate productivity",
+    "omnichannel fulfillment BOPIS implementation ROI retail",
+    "retail workforce management implementation ROI labor optimization",
+    "dynamic pricing retail implementation ROI margin case study",
+    "retail returns optimization implementation ROI cost reduction",
+    "curbside pickup implementation ROI grocery retail case study",
+    "retail media network personalization ROI revenue case study",
+]
+
 
 def build_queries(workflow: str, source_types: list[str]) -> list[str]:
     """Build targeted search queries for a campaign.
@@ -340,7 +571,13 @@ class SourcePlanner:
     """
 
     def __init__(self, backends: Optional[list] = None, max_per_query: int = 8) -> None:
-        self.backends = backends or [DuckDuckGoSearch(), CuratedSeedSearch(), OpenCLISearch(), ArxivSearch()]
+        self.backends = backends or [
+            GoogleSearch(),
+            DuckDuckGoSearch(),
+            CuratedSeedSearch(),
+            OpenCLISearch(),
+            ArxivSearch(),
+        ]
         self.max_per_query = max_per_query
 
     def plan(self, campaign: Campaign, max_sources: int = 20) -> list[dict]:

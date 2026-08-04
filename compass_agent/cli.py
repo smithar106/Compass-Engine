@@ -55,6 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
     lib.add_argument("action", choices=["status", "crawl", "rank"], help="library action")
     lib.add_argument("--library", type=str, default="", help="library id to crawl")
     lib.add_argument("--pages", type=int, default=5, help="max pages per library crawl")
+    roi = sub.add_parser(
+        "roi-search",
+        help="Run mass Google search for 1000+ ROI case studies across all "
+        "industries and intervention types. Uses OpenCLI google search adapter."
+    )
+    roi.add_argument("--queries", type=int, default=50, help="max queries to run (default 50, covers ~2500 results)")
+    roi.add_argument("--limit", type=int, default=50, help="results per query (default 50, max 100)")
+    roi.add_argument("--dry-run", action="store_true", help="show queries without executing")
     ev = sub.add_parser("eval", help="Retrieval evaluation: recall, sensitivity, weight stability")
     ev.add_argument("action", choices=["retrieval", "sensitivity"], help="eval action")
     return parser
@@ -138,6 +146,7 @@ def _build_discovery(settings: Settings, store, collector_db: str):
         CuratedSeedSearch,
         DiscoveryPipeline,
         DuckDuckGoSearch,
+        GoogleSearch,
         HttpFetcher,
         IngestPublisher,
         OpenCLISearch,
@@ -157,11 +166,11 @@ def _build_discovery(settings: Settings, store, collector_db: str):
     )
     return DiscoveryPipeline(
         planner=SourcePlanner(
-            # priority order: general web + curated vendor seeds first (they find
-            # evidence-driven business ROI case studies); OpenCLI fills with
-            # community/academic results (arxiv only for academic gaps)
-            backends=[DuckDuckGoSearch(), CuratedSeedSearch(), OpenCLISearch()],
-            max_per_query=8,
+            # priority order: Google Search first (highest yield for business ROI
+            # case studies with real outcomes), then DuckDuckGo + curated seeds,
+            # then OpenCLI for community/academic results
+            backends=[GoogleSearch(), DuckDuckGoSearch(), CuratedSeedSearch(), OpenCLISearch()],
+            max_per_query=16,
         ),
         fetcher=HttpFetcher(),
         llm=llm,
@@ -430,6 +439,101 @@ def cmd_libraries(settings: Settings, problems: list[str], action: str, library_
     return 0
 
 
+def cmd_roi_search(settings: Settings, problems: list[str], queries: int, limit: int, dry_run: bool) -> int:
+    """Run a mass Google search campaign for ROI case studies using OpenCLI."""
+    if problems:
+        return _print_config_errors(problems)
+    if not settings.provider_api_key_configured:
+        key_env = settings.missing_provider_key_env or "provider API key"
+        print(f"WARNING: {key_env} not set — ingestion will skip LLM extraction.")
+    from compass_agent.discovery import (
+        DiscoveryPipeline,
+        DuckDuckGoSearch,
+        GoogleSearch,
+        HttpFetcher,
+        IngestPublisher,
+        SourcePlanner,
+    )
+    from compass_agent.llm import LLMClient
+    from compass_agent.store import AgentStore
+
+    store = AgentStore(db_path=settings.store_db or "")
+    llm = LLMClient(
+        api_key=settings.provider_api_key,
+        provider=settings.llm_provider,
+        concurrency=min(settings.llm_concurrency, 4),
+    )
+    ingest = IngestPublisher(
+        api_url=settings.compass_api_url,
+        token=settings.sync_token,
+        enabled=bool(settings.sync_token),
+    )
+    pipeline = DiscoveryPipeline(
+        planner=SourcePlanner(
+            backends=[GoogleSearch(), DuckDuckGoSearch()],
+            max_per_query=limit,
+        ),
+        fetcher=HttpFetcher(),
+        llm=llm,
+        ingest=ingest,
+    )
+
+    if dry_run:
+        from compass_agent.discovery import ROI_QUERIES
+        print(f"Would run {min(queries, len(ROI_QUERIES))} Google searches ({limit} results each):")
+        for q in ROI_QUERIES[:queries]:
+            print(f"  google search \"{q}\" --limit {limit}")
+        return 0
+
+    from compass_agent.discovery import ROI_QUERIES
+    actual_queries = min(queries, len(ROI_QUERIES))
+    print(f"Starting ROI search campaign: {actual_queries} queries × {limit} results = ~{actual_queries * limit} candidates")
+    print(f"Using: Google search via OpenCLI + DuckDuckGo fallback")
+    print(f"Ingesting to: {settings.compass_api_url}/api/evidence/ingest\n")
+
+    total_discovered = 0
+    total_accepted = 0
+    total_rejected = 0
+    total_cost = 0.0
+
+    for i, q in enumerate(ROI_QUERIES[:actual_queries], 1):
+        gc = GoogleSearch()
+        results = gc.search(q, max_results=limit)
+        urls = [r["url"] for r in results if r.get("url")]
+        print(f"  [{i}/{actual_queries}] google search \"{q[:60]}...\" → {len(urls)} results")
+
+        for url in urls:
+            try:
+                text = pipeline.fetcher.fetch(url)
+            except Exception:
+                text = ""
+            if len(text.strip()) < 120:
+                total_rejected += 1
+                continue
+            try:
+                from compass_agent.discovery import DiscoveryReport
+                report = DiscoveryReport(workflow="ROI case study", business_function="cross-functional")
+                pipeline._extract_and_ingest(text, {"url": url, "title": ""}, None, report)
+                total_accepted += report.accepted
+                total_rejected += report.rejected
+                total_cost += report.cost_usd
+            except Exception as exc:
+                total_rejected += 1
+            total_discovered += 1
+
+        if i % 10 == 0:
+            print(f"  Progress: {total_discovered} discovered, {total_accepted} accepted, "
+                  f"{total_rejected} rejected, cost=${total_cost:.4f}")
+
+    print(f"\nROI Search Complete:")
+    print(f"  Queries run: {actual_queries}")
+    print(f"  Discovered: {total_discovered}")
+    print(f"  Accepted: {total_accepted}")
+    print(f"  Rejected: {total_rejected}")
+    print(f"  Total cost: ${total_cost:.4f}")
+    return 0
+
+
 def cmd_eval(settings: Settings, problems: list[str], action: str) -> int:
     if problems:
         return _print_config_errors(problems)
@@ -495,6 +599,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_campaign(settings, problems, args.action, args.sources)
     if args.command == "libraries":
         return cmd_libraries(settings, problems, args.action, args.library, args.pages)
+    if args.command == "roi-search":
+        return cmd_roi_search(settings, problems, args.queries, args.limit, args.dry_run)
     if args.command == "eval":
         return cmd_eval(settings, problems, args.action)
 
