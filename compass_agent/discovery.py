@@ -81,64 +81,14 @@ class NullSearch(SearchBackend):
 
 
 class GoogleSearch(SearchBackend):
-    """Web search via OpenCLI's DuckDuckGo adapter (headless — no browser needed).
-
-    OpenCLI's google adapter requires Chrome/Playwright. DuckDuckGo provides
-    equivalent discovery quality with zero browser dependencies. Falls back to
-    the Python DuckDuckGo scraper if OpenCLI isn't bootstrapped.
-    """
-
-    _opencli: Optional[str] = None
-
-    @classmethod
-    def _resolve_opencli(cls) -> str:
-        if cls._opencli is None:
-            try:
-                from compass_agent.opencli_bootstrap import ensure_opencli
-
-                cls._opencli = ensure_opencli()
-            except Exception as exc:
-                cls._opencli = ""
-                log.warning("opencli resolve error for GoogleSearch: %s", exc)
-        return cls._opencli
+    """High-volume web search for ROI case studies using DuckDuckGo.
+    Uses the existing Python scraper — no OpenCLI or browser dependency."""
 
     def build_queries(self, campaign: Campaign) -> list[str]:
         wf = campaign.workflow.replace("_", " ")
         return [wf] + ROI_QUERIES[:50]
 
     def search(self, query: str, max_results: int = 50) -> list[dict]:
-        import subprocess
-
-        # Try OpenCLI duckduckgo first (headless, no browser needed)
-        exe = self._resolve_opencli()
-        if exe:
-            cmd = f'duckduckgo search "{query}" --limit {min(max_results, 100)}'
-            try:
-                from compass_agent.opencli_bootstrap import opencli_env
-
-                result = subprocess.run(
-                    f"{exe} {cmd} -f json",
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=45,
-                    env=opencli_env(),
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    items = json.loads(result.stdout)
-                    if isinstance(items, list) and items:
-                        out = []
-                        for item in items[:max_results]:
-                            url = (item.get("url") or "").strip()
-                            title = (item.get("title") or "").strip()
-                            if url and url.startswith(("http://", "https://")):
-                                out.append({"url": url, "title": title, "source_type": "ddg_opencli"})
-                        if out:
-                            return out
-            except Exception:
-                pass
-
-        # Fall back to Python DuckDuckGo scraper (no OpenCLI needed)
         from compass_collector.scraper.sources.web_search import WebSearchScraper
 
         try:
@@ -148,10 +98,10 @@ class GoogleSearch(SearchBackend):
             for r in results:
                 url = _clean_url(r.get("url", ""))
                 if url.startswith(("http://", "https://")):
-                    out.append({"url": url, "title": r.get("title", ""), "source_type": "ddg_scraper"})
+                    out.append({"url": url, "title": r.get("title", ""), "source_type": "ddg"})
             return out
         except Exception as exc:
-            log.warning("google/duckduckgo search failed %r: %s", query, exc)
+            log.warning("DDG search failed %r: %s", query, exc)
             return []
 
 
