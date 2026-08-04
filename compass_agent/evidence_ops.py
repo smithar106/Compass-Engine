@@ -21,7 +21,7 @@ from compass_agent.store import AgentStore
 
 log = logging.getLogger("compass_agent.evidence_ops")
 
-DEFAULT_DISCOVER_PER_CYCLE = 16
+DEFAULT_DISCOVER_PER_CYCLE = 50
 
 
 def backfill_collector_db(db_path: str) -> int:

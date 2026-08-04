@@ -103,7 +103,8 @@ class GoogleSearch(SearchBackend):
         return cls._opencli
 
     def build_queries(self, campaign: Campaign) -> list[str]:
-        return [f'duckduckgo search "{q}" --limit 50' for q in ROI_QUERIES[:30]]
+        wf = campaign.workflow.replace("_", " ")
+        return [wf] + ROI_QUERIES[:50]
 
     def search(self, query: str, max_results: int = 50) -> list[dict]:
         import subprocess
