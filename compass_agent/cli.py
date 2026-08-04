@@ -149,7 +149,6 @@ def _build_discovery(settings: Settings, store, collector_db: str):
         GoogleSearch,
         HttpFetcher,
         IngestPublisher,
-        OpenCLISearch,
         SourcePlanner,
     )
     from compass_agent.llm import LLMClient
@@ -169,7 +168,7 @@ def _build_discovery(settings: Settings, store, collector_db: str):
             # priority order: Google Search first (highest yield for business ROI
             # case studies with real outcomes), then DuckDuckGo + curated seeds,
             # then OpenCLI for community/academic results
-            backends=[GoogleSearch(), DuckDuckGoSearch(), CuratedSeedSearch(), OpenCLISearch()],
+            backends=[GoogleSearch(), DuckDuckGoSearch(), CuratedSeedSearch()],
             max_per_query=25,
         ),
         fetcher=HttpFetcher(),

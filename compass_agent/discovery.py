@@ -541,8 +541,6 @@ class SourcePlanner:
             GoogleSearch(),
             DuckDuckGoSearch(),
             CuratedSeedSearch(),
-            OpenCLISearch(),
-            ArxivSearch(),
         ]
         self.max_per_query = max_per_query
 
