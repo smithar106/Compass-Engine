@@ -345,8 +345,10 @@ class Daemon:
                         store=self.store,
                         collector_db=self.collector_db,
                         discovery=self.discovery,
-                        max_sources=min(self.settings.max_docs_per_cycle, 10),
+                        max_sources=max(self.settings.max_docs_per_cycle, 50),
                     )
+                    cost = ops.get("cost_usd", 0.0)
+                    self.budget.spend(cost)
                     processed += ops.get("discovered", 0)
                     self.logger.info(
                         "Cycle %d: evidence-ops campaign=%s discovered=%d accepted=%d "
@@ -356,7 +358,7 @@ class Daemon:
                         ops.get("discovered", 0),
                         ops.get("accepted", 0),
                         ops.get("rejected", 0),
-                        ops.get("cost_usd", 0.0),
+                        cost,
                         self.budget.daily_spent,
                         self.settings.max_daily_llm_usd,
                     )

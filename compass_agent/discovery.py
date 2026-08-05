@@ -654,6 +654,7 @@ class DiscoveryPipeline:
         self.ingest = ingest
         self.budget_gate = budget_gate
         self.max_implementations_per_source = max_implementations_per_source
+        self._seen: set[str] = set()
 
     def _ingest_payload(self, payload: dict, candidate: dict, campaign: Campaign, report: DiscoveryReport) -> None:
         from compass_agent.validate import validate_enrichment
@@ -750,8 +751,15 @@ class DiscoveryPipeline:
                 report.rejections.append("budget_gate")
                 break
 
+            url = candidate["url"]
+            if url in self._seen:
+                report.rejected += 1
+                report.rejections.append("cross_cycle_duplicate")
+                continue
+
             before = report.accepted
-            text = self.fetcher.fetch(candidate["url"], candidate.get("title", ""))
+            text = self.fetcher.fetch(url, candidate.get("title", ""))
+            self._seen.add(url)
             if len(text.strip()) < 120:
                 report.rejected += 1
                 report.rejections.append("insufficient_text")
@@ -784,7 +792,10 @@ class DiscoveryPipeline:
         for link in links[: self.max_implementations_per_source]:
             if self.budget_gate is not None and not self.budget_gate():
                 break
+            if link["url"] in self._seen:
+                continue
             link_text = self.fetcher.fetch(link["url"], link.get("title", ""))
+            self._seen.add(link["url"])
             if len(link_text.strip()) < 120:
                 continue
             report.sources_discovered += 1
