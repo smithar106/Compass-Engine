@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+import urllib.request
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -78,6 +81,66 @@ class NullSearch(SearchBackend):
 
     def search(self, query: str, max_results: int = 10) -> list[dict]:
         return []
+
+
+class HackerNewsSearch(SearchBackend):
+    """HackerNews via Algolia API — free, no key, returns stories with URLs."""
+
+    def search(self, query: str, max_results: int = 25) -> list[dict]:
+        try:
+            params = urllib.parse.urlencode({"query": query, "hitsPerPage": max_results, "tags": "story"})
+            url = f"https://hn.algolia.com/api/v1/search?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "CompassAgent/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            out = []
+            for hit in data.get("hits", [])[:max_results]:
+                u = hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID')}"
+                if u.startswith(("http://", "https://")):
+                    out.append({"url": u, "title": hit.get("title", ""), "source_type": "hackernews"})
+            return out
+        except Exception as exc:
+            log.warning("HN search failed %r: %s", query, exc)
+            return []
+
+
+class RedditSearch(SearchBackend):
+    """Reddit via JSON API — searches across Reddit for implementation discussions."""
+
+    def search(self, query: str, max_results: int = 25) -> list[dict]:
+        try:
+            params = urllib.parse.urlencode({"q": query, "limit": max_results, "sort": "relevance"})
+            url = f"https://www.reddit.com/search.json?{params}"
+            req = urllib.request.Request(url, headers={"User-Agent": "CompassAgent/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            out = []
+            for child in data.get("data", {}).get("children", [])[:max_results]:
+                d = child.get("data", {})
+                u = d.get("url", "")
+                if u.startswith(("http://", "https://")):
+                    out.append({"url": u, "title": d.get("title", ""), "source_type": "reddit"})
+            return out
+        except Exception as exc:
+            log.warning("Reddit search failed %r: %s", query, exc)
+            return []
+
+
+class CommunitySearch(SearchBackend):
+    """Aggregates HN + Reddit searches into one backend for broader discovery."""
+
+    def build_queries(self, campaign: Campaign) -> list[str]:
+        wf = campaign.workflow.replace("_", " ")
+        return [wf, f"{wf} implementation results", f"{wf} ROI case study"]
+
+    def search(self, query: str, max_results: int = 15) -> list[dict]:
+        results = []
+        for backend in (HackerNewsSearch(), RedditSearch()):
+            try:
+                results.extend(backend.search(query, max_results=max_results // 2))
+            except Exception:
+                pass
+        return results
 
 
 class GoogleSearch(SearchBackend):
@@ -558,6 +621,7 @@ class SourcePlanner:
         self.backends = backends or [
             GoogleSearch(),
             DuckDuckGoSearch(),
+            CommunitySearch(),
             CuratedSeedSearch(),
         ]
         self.max_per_query = max_per_query
