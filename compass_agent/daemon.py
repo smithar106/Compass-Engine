@@ -361,6 +361,24 @@ class Daemon:
                         self.budget.daily_spent,
                         self.settings.max_daily_llm_usd,
                     )
+                    for src in ops.get("source_report") or []:
+                        if not src.get("discovered"):
+                            continue
+                        self.logger.info(
+                            "Cycle %d: source=%s discovered=%d accepted=%d rejected=%d "
+                            "dups=%d rate=%.2f cost/accepted=$%.4f tiers=%s orgs=%d industries=%d",
+                            cycle,
+                            src["source"],
+                            src["discovered"],
+                            src["accepted"],
+                            src["rejected"],
+                            src["duplicates"],
+                            src["acceptance_rate"],
+                            src["cost_per_accepted"],
+                            src["tiers"] or "-",
+                            src["unique_organizations"],
+                            src["unique_industries"],
+                        )
                 except Exception as exc:
                     self.logger.error("Cycle %d: evidence-ops failed: %s", cycle, exc)
 

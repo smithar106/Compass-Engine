@@ -27,6 +27,55 @@ from compass_agent.campaign import Campaign
 
 log = logging.getLogger("compass_agent.discovery")
 
+# Degraded-source circuit breaker (process-global so it survives the per-cycle
+# instantiation of backends). When a source is blocked (HTTP 403, Cloudflare,
+# etc.) it is marked degraded after N consecutive failures and skipped for a
+# retry interval instead of being hammered every single cycle.
+_DEGRADED_UNTIL: dict[str, float] = {}
+_DEGRAD_FAILS: dict[str, int] = {}
+_DEGRADED_LOGGED: set[str] = set()
+
+
+class DegradedBackend:
+    """Circuit breaker for flaky/blocked search sources.
+
+    ``name`` must identify the source. After `max_fails` consecutive failures
+    the backend stops answering until a retry interval elapses, then makes one
+    attempt to recover. Improves log hygiene and avoids wasting requests on
+    sources that are currently being blocked.
+    """
+
+    name = "degraded"
+    retry_seconds: float = 1800.0
+    max_fails: int = 2
+
+    def _in_cooldown(self, query: str) -> bool:
+        until = _DEGRADED_UNTIL.get(self.name, 0.0)
+        if time.time() < until:
+            # Log once per cooldown window, not once per cycle.
+            if self.name not in _DEGRADED_LOGGED:
+                _DEGRADED_LOGGED.add(self.name)
+                log.warning(
+                    "%s is degraded (repeated failures) — backing off for %.0fs.",
+                    self.name, until - time.time(),
+                )
+            return True
+        _DEGRADED_LOGGED.discard(self.name)
+        return False
+
+    def _mark_fail(self) -> None:
+        fails = _DEGRAD_FAILS.get(self.name, 0) + 1
+        if fails >= self.max_fails:
+            _DEGRADED_UNTIL[self.name] = time.time() + self.retry_seconds
+            _DEGRAD_FAILS[self.name] = 0
+        else:
+            _DEGRAD_FAILS[self.name] = fails
+
+    def _mark_ok(self) -> None:
+        _DEGRAD_FAILS[self.name] = 0
+        _DEGRADED_UNTIL.pop(self.name, None)
+        _DEGRADED_LOGGED.discard(self.name)
+
 
 # ── Search backends ──────────────────────────────────────────────────────
 
@@ -106,10 +155,17 @@ class HackerNewsSearch(SearchBackend):
             return []
 
 
-class RedditSearch(SearchBackend):
-    """Reddit via JSON API — searches across Reddit for implementation discussions."""
+class RedditSearch(SearchBackend, DegradedBackend):
+    """Reddit via JSON API — searches across Reddit for implementation
+    discussions. Currently frequently blocked (HTTP 403); guarded by the
+    degraded-source circuit breaker so it backs off instead of spamming."""
+
+    name = "reddit"
+    retry_seconds = 1800.0
 
     def search(self, query: str, max_results: int = 25) -> list[dict]:
+        if self._in_cooldown(query):
+            return []
         try:
             params = urllib.parse.urlencode({"q": query, "limit": max_results, "sort": "relevance"})
             url = f"https://www.reddit.com/search.json?{params}"
@@ -122,9 +178,12 @@ class RedditSearch(SearchBackend):
                 u = d.get("url", "")
                 if u.startswith(("http://", "https://")):
                     out.append({"url": u, "title": d.get("title", ""), "source_type": "reddit"})
+            if out:
+                self._mark_ok()
             return out
         except Exception as exc:
             log.warning("Reddit search failed %r: %s", query, exc)
+            self._mark_fail()
             return []
 
 
@@ -145,10 +204,17 @@ class CommunitySearch(SearchBackend):
         return results
 
 
-class MediumSearch(SearchBackend):
-    """Medium article search via unofficial JSON feed — no API key needed."""
+class MediumSearch(SearchBackend, DegradedBackend):
+    """Medium article search via unofficial JSON feed — no API key needed.
+    Currently frequently blocked (HTTP 403); guarded by the degraded-source
+    circuit breaker so it backs off instead of spamming."""
+
+    name = "medium"
+    retry_seconds = 1800.0
 
     def search(self, query: str, max_results: int = 15) -> list[dict]:
+        if self._in_cooldown(query):
+            return []
         try:
             params = urllib.parse.urlencode({"q": query})
             url = f"https://medium.com/search?{params}"
@@ -169,9 +235,12 @@ class MediumSearch(SearchBackend):
                     out.append({"url": u, "title": title, "source_type": "medium"})
                     if len(out) >= max_results:
                         break
+            if out:
+                self._mark_ok()
             return out
         except Exception as exc:
             log.warning("Medium search failed %r: %s", query, exc)
+            self._mark_fail()
             return []
 
 
@@ -731,6 +800,46 @@ class IngestPublisher:
 # ── Pipeline ─────────────────────────────────────────────────────────────
 
 @dataclass
+class SourceStats:
+    """Per-source discovery metrics so we can tell whether a source actually
+    contributes net-new, high-quality evidence before investing in it."""
+
+    name: str
+    discovered: int = 0
+    accepted: int = 0
+    rejected: int = 0
+    duplicates: int = 0
+    cost_usd: float = 0.0
+    tiers: dict = field(default_factory=dict)  # quality tier → count
+    organizations: set = field(default_factory=set)
+    industries: set = field(default_factory=set)
+
+    @property
+    def acceptance_rate(self) -> float:
+        total = self.accepted + self.rejected
+        return (self.accepted / total) if total else 0.0
+
+    @property
+    def cost_per_accepted(self) -> float:
+        return (self.cost_usd / self.accepted) if self.accepted else 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "source": self.name,
+            "discovered": self.discovered,
+            "accepted": self.accepted,
+            "rejected": self.rejected,
+            "duplicates": self.duplicates,
+            "acceptance_rate": round(self.acceptance_rate, 3),
+            "cost_usd": round(self.cost_usd, 6),
+            "cost_per_accepted": round(self.cost_per_accepted, 6),
+            "tiers": self.tiers,
+            "unique_organizations": len(self.organizations),
+            "unique_industries": len(self.industries),
+        }
+
+
+@dataclass
 class DiscoveryReport:
     workflow: str
     business_function: str
@@ -740,6 +849,17 @@ class DiscoveryReport:
     rich_records_created: int = 0
     cost_usd: float = 0.0
     rejections: list[str] = field(default_factory=list)
+    sources: dict = field(default_factory=dict)
+
+    def _source(self, name: str) -> SourceStats:
+        name = name or "unknown"
+        return self.sources.setdefault(name, SourceStats(name=name))
+
+    def source_report(self) -> list[dict]:
+        return [
+            s.to_dict()
+            for s in sorted(self.sources.values(), key=lambda s: s.accepted, reverse=True)
+        ]
 
     def to_dict(self) -> dict:
         return {
@@ -750,6 +870,7 @@ class DiscoveryReport:
             "rejected": self.rejected,
             "rich_records_created": self.rich_records_created,
             "cost_usd": round(self.cost_usd, 6),
+            "source_report": self.source_report(),
         }
 
 
@@ -774,10 +895,12 @@ class DiscoveryPipeline:
     def _ingest_payload(self, payload: dict, candidate: dict, campaign: Campaign, report: DiscoveryReport) -> None:
         from compass_agent.validate import validate_enrichment
 
+        source = report._source(candidate.get("source_type", ""))
         validation = validate_enrichment(payload)
         if not validation.valid:
             report.rejected += 1
             report.rejections.append("validation")
+            source.rejected += 1
             return
         record = {
             "source": "compass_agent:discovery",
@@ -810,11 +933,21 @@ class DiscoveryPipeline:
         ingest_result = self.ingest.ingest(record)
         if ingest_result.get("accepted"):
             report.accepted += 1
+            source.accepted += 1
+            tier = str(record.get("evidence_tier") or "bronze").lower()
+            source.tiers[tier] = source.tiers.get(tier, 0) + 1
+            org = record.get("organization_name") or ""
+            if org:
+                source.organizations.add(org)
+            for ind in record.get("organization_industry") or []:
+                if ind:
+                    source.industries.add(ind)
             if ingest_result.get("rich"):
                 report.rich_records_created += 1
         else:
             report.rejected += 1
             report.rejections.append(ingest_result.get("reason", "rejected"))
+            source.rejected += 1
 
     def _extract_and_ingest(self, text: str, candidate: dict, campaign: Campaign, report: DiscoveryReport) -> bool:
         """Run single + (fallback) multi extraction over a page; ingest any
@@ -825,6 +958,7 @@ class DiscoveryPipeline:
 
         result = self.llm.enrich(text, title=candidate.get("title", ""), url=candidate["url"])
         report.cost_usd += result.cost
+        report._source(candidate.get("source_type", "")).cost_usd += result.cost
 
         from compass_agent.validate import validate_enrichment
 
@@ -841,8 +975,10 @@ class DiscoveryPipeline:
         if not many:
             report.rejected += 1
             report.rejections.append("no_implementations")
+            report._source(candidate.get("source_type", "")).rejected += 1
             return False
         report.cost_usd += many[0].cost
+        report._source(candidate.get("source_type", "")).cost_usd += many[0].cost
         before = report.accepted
         ingested = 0
         for item in many:
@@ -862,6 +998,8 @@ class DiscoveryPipeline:
         report.sources_discovered = len(candidates)
 
         for candidate in candidates:
+            source = report._source(candidate.get("source_type", ""))
+            source.discovered += 1
             if self.budget_gate is not None and not self.budget_gate():
                 report.rejections.append("budget_gate")
                 break
@@ -870,6 +1008,8 @@ class DiscoveryPipeline:
             if url in self._seen:
                 report.rejected += 1
                 report.rejections.append("cross_cycle_duplicate")
+                source.rejected += 1
+                source.duplicates += 1
                 continue
 
             before = report.accepted
@@ -878,6 +1018,7 @@ class DiscoveryPipeline:
             if len(text.strip()) < 120:
                 report.rejected += 1
                 report.rejections.append("insufficient_text")
+                source.rejected += 1
                 self._expand(candidate, campaign, report)
                 continue
 
@@ -909,9 +1050,11 @@ class DiscoveryPipeline:
                 break
             if link["url"] in self._seen:
                 continue
+            link["source_type"] = link.get("source_type") or candidate.get("source_type", "")
             link_text = self.fetcher.fetch(link["url"], link.get("title", ""))
             self._seen.add(link["url"])
             if len(link_text.strip()) < 120:
                 continue
             report.sources_discovered += 1
+            report._source(candidate.get("source_type", "")).discovered += 1
             self._extract_and_ingest(link_text, link, campaign, report)

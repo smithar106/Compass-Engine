@@ -205,6 +205,7 @@ def run_evidence_ops(
             "rejected": report.rejected,
             "cost_usd": round(report.cost_usd, 6),
             "source": "ddg_search",
+            "source_report": report.source_report(),
         })
         campaign.discovered += report.sources_discovered
         campaign.accepted += report.accepted
