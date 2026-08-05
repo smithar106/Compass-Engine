@@ -295,14 +295,13 @@ class Daemon:
     def _do_work_cycle(self, cycle: int) -> int:
         """One unit of work. Budget-gated; returns documents processed."""
         if not self.budget.can_work():
-            self.logger.warning(
-                "Budget exhausted — daily spent $%.2f / %.2f, total $%.2f / %.2f. "
-                "Skipping work this cycle.",
-                self.budget.daily_spent,
-                self.settings.max_daily_llm_usd,
-                self.budget.total_spent,
-                self.settings.max_total_llm_usd,
+            self.logger.info(
+                "Budget exhausted — exiting to prevent idle cycling. "
+                "Daily $%.2f / %.2f, total $%.2f / %.2f.",
+                self.budget.daily_spent, self.settings.max_daily_llm_usd,
+                self.budget.total_spent, self.settings.max_total_llm_usd,
             )
+            self._running = False
             return 0
 
         processed = 0
@@ -384,6 +383,8 @@ class Daemon:
         self._install_signal_handlers()
         self._running = True
         self.logger.info("Starting Compass Evidence Agent daemon.")
+        born = time.time()
+        max_lifetime_seconds = 20 * 3600  # 20 hours
 
         # Single connectivity check at startup. Retries/backoff are owned by the
         # main cycle loop below, so the worker is always responsive to signals
@@ -416,6 +417,15 @@ class Daemon:
 
             if self._running:
                 self._sleep_interruptible(self.settings.sleep_seconds)
+
+            age_hours = (time.time() - born) / 3600
+            if age_hours >= 20:
+                self.logger.info(
+                    "Daemon lifetime reached 20 hours — exiting for fresh restart. "
+                    "Age: %.1fh, cycles: %d.",
+                    age_hours, cycle,
+                )
+                self._running = False
 
         self._running = False
         self.logger.info("Compass Evidence Agent stopped.")
