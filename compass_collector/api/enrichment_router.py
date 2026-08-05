@@ -274,6 +274,77 @@ def ingest_evidence(req: IngestRequest, request: Request):
         db.close()
 
 
+# Gold-card columns surfaced to the agent's quality ops (must stay in sync with
+# compass_agent.promote.GOLD_COLUMNS).
+RECORDS_COLUMNS = (
+    "id", "organization_name", "organization_anonymized", "result_status",
+    "has_baseline", "problem_baseline_description", "intervention_measurement_period_value",
+    "intervention_measurement_period_unit", "sample_size", "independently_verified",
+    "vendor_reported", "source_id", "document_id", "implementation_provenance",
+    "outcome_provenance", "implementation_richness", "evidence_level",
+    "intervention_title", "organization_industry", "problem_business_function",
+    "intervention_components", "outcome_block",
+)
+
+RECORDS_JSON_COLUMNS = (
+    "organization_industry", "problem_business_function",
+    "intervention_components", "outcome_block",
+)
+
+
+@router.get("/records")
+def list_records(limit: int = 500, offset: int = 0, tier: str = "", request: Request = None):
+    """Paginated read of evidence records (+ their metrics) for quality ops.
+
+    Backs the agent's Bronze audit / Silver→Gold promotion so it runs against
+    the live engine database rather than a stale snapshot. Auth: agent key.
+    """
+    import json as _json
+
+    from compass_collector.models.intervention import MetricRecord as _MR
+
+    if not _authorized(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    limit = max(1, min(int(limit), 1000))
+    offset = max(0, int(offset))
+
+    db = get_session()
+    try:
+        q = db.query(InterventionRecord)
+        if tier:
+            q = q.filter(InterventionRecord.evidence_level == str(tier))
+        total = q.count()
+        rows = q.order_by(InterventionRecord.created_at.desc()).offset(offset).limit(limit).all()
+
+        out = []
+        for rec in rows:
+            metrics = db.query(_MR).filter(_MR.intervention_id == rec.id).all()
+            d = {c: getattr(rec, c, None) for c in RECORDS_COLUMNS}
+            for c in RECORDS_JSON_COLUMNS:
+                if isinstance(d.get(c), str):
+                    try:
+                        d[c] = _json.loads(d[c])
+                    except (TypeError, ValueError):
+                        d[c] = []
+            d["metrics"] = [
+                {
+                    "metric_name": m.metric_name,
+                    "metric_category": m.metric_category,
+                    "baseline_value": m.baseline_value,
+                    "post_value": m.post_value,
+                    "absolute_change": m.absolute_change,
+                    "percentage_change": m.percentage_change,
+                    "unit": m.unit,
+                    "reported_text": m.reported_text,
+                }
+                for m in metrics
+            ]
+            out.append(d)
+        return {"records": out, "total": total, "limit": limit, "offset": offset}
+    finally:
+        db.close()
+
+
 @router.get("/coverage")
 def evidence_coverage():
     """Per-field organization coverage across the evidence graph.

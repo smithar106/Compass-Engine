@@ -77,6 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply-concurrency", type=int, default=1,
         help="LLM concurrency for apply (default 1 to keep spend low)",
     )
+    prom.add_argument(
+        "--source", type=str, default="engine",
+        help="record source: 'engine' (live API, needs AGENT_SYNC_TOKEN) or 'db' (local collector DB)",
+    )
     return parser
 
 
@@ -586,7 +590,7 @@ def cmd_eval(settings: Settings, problems: list[str], action: str) -> int:
 
 
 def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str, limit: int,
-                apply_count: int, apply_concurrency: int) -> int:
+                apply_count: int, apply_concurrency: int, source: str = "engine") -> int:
     if problems:
         return _print_config_errors(problems)
     from compass_agent.db import ensure_collector_db
@@ -596,17 +600,27 @@ def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str,
         classify_tier,
         compute_points,
         load_records,
+        load_records_from_engine,
         plan_promotions,
     )
 
-    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
-    if not collector_db:
-        print("No collector DB available (AGENT_CANDIDATE_DB).")
-        return 1
-    records = load_records(collector_db, tier=(tier or None), limit=(limit or None))
-    if not records:
-        print("No records loaded.")
-        return 1
+    if source == "engine":
+        records = load_records_from_engine(
+            settings.compass_api_url, settings.sync_token, tier=tier or "", limit=limit or 500
+        )
+        if not records:
+            print("No records from engine (check AGENT_SYNC_TOKEN / COMPASS_API_URL).")
+            return 1
+        print(f"Loaded {len(records)} records from live engine DB.")
+    else:
+        collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+        if not collector_db:
+            print("No collector DB available (AGENT_CANDIDATE_DB).")
+            return 1
+        records = load_records(collector_db, tier=(tier or None), limit=(limit or None))
+        if not records:
+            print("No records loaded.")
+            return 1
 
     if action == "audit":
         audit = audit_bronze(records)
@@ -701,7 +715,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.command == "promote":
         return cmd_promote(
             settings, problems, args.action, args.tier, args.limit,
-            args.apply_count, args.apply_concurrency,
+            args.apply_count, args.apply_concurrency, args.source,
         )
 
     parser.print_help()

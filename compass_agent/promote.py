@@ -545,6 +545,31 @@ def load_records(db_path: str, tier: Optional[str] = None, limit: Optional[int] 
         conn.close()
 
 
+def load_records_from_engine(api_url: str = "", token: str = "", tier: str = "", limit: int = 500) -> list:
+    """Load records from the live engine ``GET /api/evidence/records`` endpoint.
+
+    Returns the same record shape as ``load_records`` (gold-card columns +
+    ``metrics``) so audit/plan work identically against the engine's live DB.
+    """
+    import httpx
+
+    if not api_url or not token:
+        return []
+    try:
+        resp = httpx.get(
+            f"{api_url.rstrip('/')}/api/evidence/records",
+            params={"limit": min(int(limit) or 500, 1000), "tier": tier or ""},
+            headers={"X-Compass-Agent-Key": token},
+            timeout=90,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("records") or []
+    except Exception as exc:
+        log.warning("load_records_from_engine failed: %s", exc)
+        return []
+
+
 def _load_metrics(conn, intervention_id: str) -> list:
     try:
         rows = conn.execute(
