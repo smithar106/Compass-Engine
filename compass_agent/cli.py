@@ -65,6 +65,18 @@ def build_parser() -> argparse.ArgumentParser:
     roi.add_argument("--dry-run", action="store_true", help="show queries without executing")
     ev = sub.add_parser("eval", help="Retrieval evaluation: recall, sensitivity, weight stability")
     ev.add_argument("action", choices=["retrieval", "sensitivity"], help="eval action")
+    prom = sub.add_parser(
+        "promote",
+        help="Quality-first evidence ops: Bronze audit + Silver→Gold promotion planning/apply",
+    )
+    prom.add_argument("action", choices=["audit", "plan", "apply"], help="promotion action")
+    prom.add_argument("--tier", type=str, default="", help="limit analysis to a evidence tier (bronze/silver)")
+    prom.add_argument("--limit", type=int, default=500, help="max records to load (default 500, 0 = all)")
+    prom.add_argument("--apply-count", type=int, default=5, help="top-N promotions to apply (apply action only)")
+    prom.add_argument(
+        "--apply-concurrency", type=int, default=1,
+        help="LLM concurrency for apply (default 1 to keep spend low)",
+    )
     return parser
 
 
@@ -573,6 +585,89 @@ def cmd_eval(settings: Settings, problems: list[str], action: str) -> int:
     return 0
 
 
+def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str, limit: int,
+                apply_count: int, apply_concurrency: int) -> int:
+    if problems:
+        return _print_config_errors(problems)
+    from compass_agent.db import ensure_collector_db
+    from compass_agent.promote import (
+        audit_bronze,
+        apply_promotions,
+        classify_tier,
+        compute_points,
+        load_records,
+        plan_promotions,
+    )
+
+    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if not collector_db:
+        print("No collector DB available (AGENT_CANDIDATE_DB).")
+        return 1
+    records = load_records(collector_db, tier=(tier or None), limit=(limit or None))
+    if not records:
+        print("No records loaded.")
+        return 1
+
+    if action == "audit":
+        audit = audit_bronze(records)
+        print(f"Bronze audit over {len(records)} loaded records ({audit.total_bronze} bronze).")
+        if audit.total_bronze == 0:
+            print("  (no bronze records in the loaded set)")
+        from compass_agent.promote import BRONZE_REASON_LABELS
+
+        for reason, count in audit.reasons.most_common():
+            label = BRONZE_REASON_LABELS.get(reason, reason)
+            print(f"  {count:>5d}  {label}")
+            for rid in (audit.examples.get(reason) or [])[:2]:
+                print(f"           e.g. {rid}")
+        return 0
+
+    if action == "plan":
+        target = "gold"
+        promotions = plan_promotions(records, target=target)
+        print(f"Silver→Gold promotion candidates (from {len(records)} loaded records):")
+        for p in promotions[:15]:
+            print(
+                f"  score={p.current_score}/8 gap={p.gap}  {p.organization_name[:32]:<32s} "
+                f"{p.intervention_title[:36]:<36s} fillable={','.join(p.fillable_missing) or '-'}"
+            )
+        print(f"\nTotal candidates: {len(promotions)}")
+        return 0
+
+    if action == "apply":
+        promotions = plan_promotions(records, target="gold")
+        if not promotions:
+            print("No promotion candidates.")
+            return 0
+        by_id = {r.get("id"): r for r in records}
+        from compass_agent.daemon import BudgetTracker
+
+        budget = BudgetTracker(
+            max_daily=settings.max_daily_llm_usd,
+            max_total=settings.max_total_llm_usd,
+            state_file=settings.state_file,
+        )
+        print(f"Applying promotions for top {min(apply_count, len(promotions))} candidates...")
+        result = apply_promotions(
+            promotions,
+            by_id,
+            settings,
+            budget,
+            max_applications=apply_count,
+            concurrency=apply_concurrency,
+        )
+        print(f"Promotion apply: applied={result.get('applied')} "
+              f"promoted_to_gold={result.get('promoted_to_gold')} "
+              f"failed={result.get('failed')} (daily ${budget.daily_spent:.4f})")
+        for d in result.get("details") or []:
+            print(f"  {d['record_id']}: level={d.get('evidence_level') or '-'} "
+                  f"fields={d.get('applied_fields')} metrics_added={d.get('metrics_added')}")
+        for f in (result.get("failures") or [])[:5]:
+            print(f"  failed: {f.get('record_id')} ({f.get('reason')})")
+        return 0
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -603,6 +698,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_roi_search(settings, problems, args.queries, args.limit, args.dry_run)
     if args.command == "eval":
         return cmd_eval(settings, problems, args.action)
+    if args.command == "promote":
+        return cmd_promote(
+            settings, problems, args.action, args.tier, args.limit,
+            args.apply_count, args.apply_concurrency,
+        )
 
     parser.print_help()
     return 0

@@ -28,6 +28,10 @@ class EnrichmentRequest(BaseModel):
     record_id: str
     fields: dict = Field(default_factory=dict)
     source: str = "compass_agent"
+    # Quality-promotion support: metric rows to upsert (idempotent for this
+    # source) and whether to recompute evidence_level from the result.
+    metrics: list = Field(default_factory=list)
+    reclassify: bool = False
 
 
 class IngestRequest(BaseModel):
@@ -69,6 +73,8 @@ def _apply_field(rec: InterventionRecord, column: str, value: Any) -> None:
 
 @router.post("/enrichment")
 def ingest_enrichment(req: EnrichmentRequest, request: Request):
+    import uuid
+
     if not _authorized(request):
         raise HTTPException(status_code=401, detail="unauthorized")
     if not req.record_id:
@@ -94,8 +100,54 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
         if not rec.intervention_components or not isinstance(rec.intervention_components, dict):
             rec.intervention_components = {}
         rec.intervention_components.setdefault("source_generation", "agent_enriched")
+
+        # Upsert metric rows contributed by this source (idempotent on re-run).
+        if req.metrics:
+            from compass_collector.models.intervention import MetricRecord
+
+            db.query(MetricRecord).filter(
+                MetricRecord.intervention_id == rec.id,
+                MetricRecord.source_id == f"{req.source}:promote",
+            ).delete(synchronize_session=False)
+            for m in req.metrics:
+                if not isinstance(m, dict):
+                    continue
+                try:
+                    pct = float(m.get("percentage_change")) if m.get("percentage_change") not in (None, "") else None
+                except (TypeError, ValueError):
+                    pct = None
+                db.add(
+                    MetricRecord(
+                        id=str(uuid.uuid4()),
+                        intervention_id=rec.id,
+                        source_id=f"{req.source}:promote",
+                        metric_name=str(m.get("metric_name") or m.get("category") or "metric")[:120],
+                        metric_category=str(m.get("category") or "outcome")[:60],
+                        percentage_change=pct,
+                        absolute_change=m.get("absolute_change"),
+                        unit=str(m.get("unit") or "")[:40],
+                        reported_text=str(m.get("source_passage") or "")[:400],
+                    )
+                )
+
+        # Quality promotion: recompute the stored evidence tier so a record that
+        # now clears a higher threshold actually becomes that tier. Only when the
+        # caller asks (the generic enrichment path keeps its current behavior).
+        if req.reclassify:
+            from compass_collector.api.evidence_tier import classify_evidence_tier
+
+            metrics = db.query(MetricRecord).filter(MetricRecord.intervention_id == rec.id).all()
+            tier = classify_evidence_tier(rec, metrics)
+            rec.evidence_level = tier
+            if not isinstance(rec.intervention_components, dict):
+                rec.intervention_components = {}
+            rec.intervention_components["evidence_tier"] = tier
+
         db.commit()
-        return {"record_id": req.record_id, "updated": len(applied), "fields": applied}
+        result = {"record_id": req.record_id, "updated": len(applied), "fields": applied}
+        if req.reclassify:
+            result["evidence_level"] = getattr(rec, "evidence_level", "")
+        return result
     finally:
         db.close()
 

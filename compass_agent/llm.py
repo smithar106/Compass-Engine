@@ -189,6 +189,81 @@ class LLMClient:
             return "https://api.anthropic.com/v1/messages"
         return "https://api.deepseek.com/v1/chat/completions"
 
+    def enrich_focused(
+        self,
+        text: str,
+        system: str,
+        user: str,
+        title: str = "",
+        url: str = "",
+    ) -> EnrichmentResult:
+        """Extract ONLY the requested fields from source text.
+
+        Uses a custom system prompt + focused user prompt (e.g. the promotion
+        pass recovering just the missing gold-card components). Parsing and cost
+        accounting mirror ``enrich``. Returns a payload dict even on failure.
+        """
+        if not self.can_run:
+            raise RuntimeError("LLM client has no API key configured")
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user + "\n\n" + (text or "")[:8000]},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 8192,
+        }
+        endpoint = self._endpoint()
+        headers = {"Content-Type": "application/json"}
+        if self.provider == "deepseek":
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        elif self.provider == "anthropic":
+            headers["x-api-key"] = self.api_key
+            headers["anthropic-version"] = "2023-06-01"
+
+        http = self._http or httpx.Client(timeout=self.timeout)
+        try:
+            resp = http.post(endpoint, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            content = self._extract_content(data)
+            usage = data.get("usage", {})
+            input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            cost = self._compute_cost(input_tokens, output_tokens)
+            payload = self._parse_json(content)
+            payload.setdefault("_meta", {}).update(
+                {
+                    "model": self.model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost": cost,
+                    "extracted_at": datetime.now(timezone.utc).isoformat(),
+                    "title": title,
+                    "url": url,
+                    "kind": "focused_promotion",
+                }
+            )
+            with self._lock:
+                self._spent += cost
+            return EnrichmentResult(
+                payload=payload,
+                cost=cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=self.model,
+            )
+        except Exception as exc:
+            log.error("LLM focused enrich failed: %s", exc)
+            return EnrichmentResult(
+                payload={"no_fields": True, "_meta": {"error": str(exc)}},
+                cost=0.0,
+                input_tokens=0,
+                output_tokens=0,
+                model=self.model,
+            )
+
     def enrich_many(self, text: str, title: str = "", url: str = "") -> "list[EnrichmentResult]":
         """Extract MULTIPLE implementations from a roundup/summary page.
 
