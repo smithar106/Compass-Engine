@@ -84,9 +84,27 @@ class GoogleSearch(SearchBackend):
     """High-volume web search for ROI case studies using DuckDuckGo.
     Uses the existing Python scraper — no OpenCLI or browser dependency."""
 
+    _index = 0
+
     def build_queries(self, campaign: Campaign) -> list[str]:
         wf = campaign.workflow.replace("_", " ")
-        return [wf] + ROI_QUERIES[:50]
+        # Rotate through ROI queries in blocks so DDG returns fresh results
+        # instead of the same cached pages every cycle.
+        block_size = 12
+        start = (self._index % (len(ROI_QUERIES) // block_size)) * block_size
+        end = start + block_size
+        queries = ROI_QUERIES[start:end]
+        if len(queries) < block_size:
+            queries += ROI_QUERIES[:block_size - len(queries)]
+        # Add date-anchored variants to force fresh SERP
+        years = ["2024", "2025", "2026"]
+        year = years[self._index % 3]
+        varied = []
+        for q in queries:
+            varied.append(f"{q} {year}")
+            varied.append(q)
+        GoogleSearch._index += 1
+        return [wf] + varied
 
     def search(self, query: str, max_results: int = 50) -> list[dict]:
         from compass_collector.scraper.sources.web_search import WebSearchScraper
