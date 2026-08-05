@@ -212,25 +212,14 @@ class OpenCLISearch(SearchBackend):
 
     def build_queries(self, campaign: Campaign) -> list[str]:
         wf = campaign.workflow.replace("_", " ")
-        source_types = set(campaign.source_types)
         cmds: list[str] = []
-        # Google search is highest-yield for business ROI case studies.
-        # 100 results per query, broad coverage across industries.
-        for q in ROI_QUERIES[:30]:
-            cmds.append(f'google search "{q}" --limit 50')
-        # workflow-specific Google queries
-        cmds.append(f'google search "{wf} implementation ROI case study measured results" --limit 50')
-        cmds.append(f'google search "{wf} before after metrics cost savings" --limit 50')
-        # arxiv is headless and can surface relevant business frameworks, but it
-        # rarely describes a named org implementation — only use it when the
-        # campaign explicitly needs academic/peer-reviewed evidence.
-        if source_types & {"academic", "peer_reviewed"}:
-            cmds.append(f'arxiv search "{wf} evaluation framework business" --limit 6')
-            cmds.append('arxiv search "business process automation ROI implementation" --limit 6')
-        # community adapters are public and cheap; graceful if they return nothing
-        cmds.append(f'hackernews search "{wf} ROI" --limit 10')
-        cmds.append(f'reddit search "{wf} automation results" --limit 10')
+        # Community + academic adapters (headless — no browser needed)
+        cmds.append(f'hackernews search "{wf} implementation case study" --limit 15')
+        cmds.append(f'reddit search "{wf} ROI results enterprise" --limit 15')
         cmds.append(f'devto search "{wf} implementation" --limit 10')
+        cmds.append(f'google-scholar search "{wf} business implementation outcomes" --limit 10')
+        cmds.append(f'medium search "{wf} case study measured results" --limit 10')
+        cmds.append(f'wikipedia search "{wf} business process" --limit 5')
         return cmds
 
     def search(self, query: str, max_results: int = 10) -> list[dict]:
