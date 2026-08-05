@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
+import urllib.parse
 import urllib.request
 import urllib.parse
 from dataclasses import dataclass, field
@@ -127,7 +129,7 @@ class RedditSearch(SearchBackend):
 
 
 class CommunitySearch(SearchBackend):
-    """Aggregates HN + Reddit searches into one backend for broader discovery."""
+    """Aggregates HN + Reddit + Medium searches for broader discovery."""
 
     def build_queries(self, campaign: Campaign) -> list[str]:
         wf = campaign.workflow.replace("_", " ")
@@ -135,12 +137,42 @@ class CommunitySearch(SearchBackend):
 
     def search(self, query: str, max_results: int = 15) -> list[dict]:
         results = []
-        for backend in (HackerNewsSearch(), RedditSearch()):
+        for backend in (HackerNewsSearch(), RedditSearch(), MediumSearch()):
             try:
-                results.extend(backend.search(query, max_results=max_results // 2))
+                results.extend(backend.search(query, max_results=max_results // 3))
             except Exception:
                 pass
         return results
+
+
+class MediumSearch(SearchBackend):
+    """Medium article search via unofficial JSON feed — no API key needed."""
+
+    def search(self, query: str, max_results: int = 15) -> list[dict]:
+        try:
+            params = urllib.parse.urlencode({"q": query})
+            url = f"https://medium.com/search?{params}"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "CompassAgent/1.0",
+                "Accept": "application/json",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                text = resp.read().decode()
+            # Medium embeds search results in script tags; extract any URLs
+            out = []
+            seen = set()
+            for match in re.finditer(r'"postId":"(\w+)",[^}]*"title":"([^"]+)"', text):
+                pid, title = match.group(1), match.group(2)
+                u = f"https://medium.com/p/{pid}"
+                if u not in seen:
+                    seen.add(u)
+                    out.append({"url": u, "title": title, "source_type": "medium"})
+                    if len(out) >= max_results:
+                        break
+            return out
+        except Exception as exc:
+            log.warning("Medium search failed %r: %s", query, exc)
+            return []
 
 
 class GoogleSearch(SearchBackend):
@@ -577,6 +609,18 @@ ROI_QUERIES = [
     "retail returns optimization implementation ROI cost reduction",
     "curbside pickup implementation ROI grocery retail case study",
     "retail media network personalization ROI revenue case study",
+
+    # ─── BROAD DIVERSITY QUERIES (cast wider net) ───
+    "enterprise software implementation cost reduction results",
+    "technology modernization ROI before after metrics",
+    "business transformation success story measured outcomes",
+    "operations management improvement ROI case study",
+    "strategic initiative results enterprise implementation",
+    "productivity improvement technology deployment metrics",
+    "cost reduction initiative results enterprise case study",
+    "digital innovation implementation outcomes measured",
+    "performance improvement program results enterprise",
+    "change management technology adoption ROI results",
 ]
 
 
