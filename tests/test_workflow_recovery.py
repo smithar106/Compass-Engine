@@ -163,6 +163,23 @@ class TestWorkerEndToEnd(unittest.TestCase):
         report = run_workflow_recovery(self.db_path, api_key="", max_applications=5, limit=10)
         self.assertEqual(report["skipped"], "no_api_key")
 
+    def test_unmapped_records_marked_not_recandidated(self):
+        """Unmapped outcomes must leave the candidate set (no re-burn)."""
+        from compass_agent.workflow_recovery import _candidate
+
+        fake = _FakeLLM([{"workflow": "Zz exotic quantum melding"}, {"workflow": "Zz exotic quantum melding"}])
+        report = run_workflow_recovery(self.db_path, api_key="test", llm=fake, max_applications=5, limit=10)
+        self.assertEqual(report["unmapped"], 1)
+        # Second run: no candidates remain (both marked processed).
+        report2 = run_workflow_recovery(self.db_path, api_key="test", llm=fake, max_applications=5, limit=10)
+        self.assertEqual(report2["candidates"], 0)
+        engine = create_engine(f"sqlite:///{self.db_path}")
+        Session = sessionmaker(bind=engine)
+        s = Session()
+        r2 = s.get(InterventionRecord, "r2")
+        self.assertEqual(r2.workflow_normalized["source"], "llm_recovery_unmapped")
+        s.close()
+
 
 if __name__ == "__main__":
     unittest.main()

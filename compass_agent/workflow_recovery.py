@@ -37,6 +37,8 @@ log = logging.getLogger("compass_agent.workflow_recovery")
 
 MIN_KNOWN_CONFIDENCE = 0.5   # below this, the workflow is not yet trustworthy
 RECOVERED_CONFIDENCE = 0.85  # LLM + canonical mapping
+UNMAPPED_SOURCE = "llm_recovery_unmapped"  # processed once, never re-hunted
+NO_SOURCE_SOURCE = "no_source"              # unresolvable via this worker
 
 SYSTEM_PROMPT = (
     "You are an evidence-extraction specialist for an implementation "
@@ -57,10 +59,16 @@ SYSTEM_PROMPT = (
 
 
 def _candidate(rec: Any) -> bool:
-    """True when the record's canonical workflow is not yet trustworthy."""
+    """True when the record's canonical workflow is not yet trustworthy.
+
+    Records already processed by the recovery worker — mapped OR unmapped —
+    are excluded so repeated passes do not re-burn LLM budget on them.
+    """
     wn = getattr(rec, "workflow_normalized", None) or {}
     if not isinstance(wn, dict) or not wn.get("value"):
         return True
+    if wn.get("source") in ("llm_recovery", UNMAPPED_SOURCE):
+        return False
     try:
         return float(wn.get("confidence", 0)) < MIN_KNOWN_CONFIDENCE
     except (TypeError, ValueError):
@@ -214,6 +222,12 @@ def run_workflow_recovery(
             text = _source_text(session, rec)
             if len((text or "").strip()) < 80:
                 failed += 1
+                if not dry_run:
+                    rec.workflow_normalized = {
+                        "raw": "", "value": "uncategorized", "source": NO_SOURCE_SOURCE,
+                        "method": "skipped", "confidence": 0.0,
+                        "version": WORKFLOW_NORMALIZATION_VERSION,
+                    }
                 continue
 
             if dry_run:
@@ -241,11 +255,23 @@ def run_workflow_recovery(
                 applied += 1
                 recovered += 1
                 top_workflows[entry["value"]] += 1
-            elif phrase and str(phrase).strip():
-                unmapped += 1
-                taxonomy_candidates.append(str(phrase).strip()[:80])
             else:
-                failed += 1
+                # Processed but unmappable — record it once so later passes
+                # don't re-burn budget on the same record.
+                if phrase and str(phrase).strip():
+                    unmapped += 1
+                    taxonomy_candidates.append(str(phrase).strip()[:80])
+                else:
+                    failed += 1
+                if not dry_run:
+                    rec.workflow_normalized = {
+                        "raw": str(phrase or "").strip()[:200],
+                        "value": "uncategorized",
+                        "source": UNMAPPED_SOURCE,
+                        "method": "unmapped",
+                        "confidence": 0.0,
+                        "version": WORKFLOW_NORMALIZATION_VERSION,
+                    }
 
         if not dry_run:
             session.commit()
