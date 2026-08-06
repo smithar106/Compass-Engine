@@ -857,6 +857,7 @@ def run_gold_factory(
     concurrency: int = 1,
     limit: int = 500,
     only_promotable: bool = True,
+    exclude_ids: Optional[set] = None,
 ) -> dict:
     """The Gold Factory worker. Do one promotion pass over the live engine.
 
@@ -896,6 +897,12 @@ def run_gold_factory(
         return {"skipped": "no_promotable", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
 
     promotions = plan_promotions(records, target="gold")
+    # Cooldown: records already attempted and found unrecoverable (missing
+    # fields absent from source) are excluded so we stop burning budget on
+    # every cycle. The daemon passes recently-failed ids here.
+    exclude_ids = set(exclude_ids or set())
+    if exclude_ids:
+        promotions = [p for p in promotions if p.record_id not in exclude_ids]
     if not promotions:
         return {"skipped": "no_candidates", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
 

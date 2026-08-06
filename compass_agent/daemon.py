@@ -263,6 +263,7 @@ class Daemon:
         )
         self._running = False
         self._shutdown_requested = False
+        self._gf_cooldown: dict[str, int] = {}
 
     # -- signals -----------------------------------------------------------
     def _install_signal_handlers(self) -> None:
@@ -392,6 +393,7 @@ class Daemon:
                     self.budget,
                     max_applications=self.settings.gold_factory_max_applications,
                     concurrency=max(self.settings.llm_concurrency, 1),
+                    exclude_ids=set(self._gf_cooldown),
                 )
                 if gf.get("skipped"):
                     self.logger.info(
@@ -413,8 +415,14 @@ class Daemon:
                     )
                     for f in (gf.get("failures") or [])[:3]:
                         self.logger.warning("Cycle %d: gold-factory failed %s (%s)", cycle, f.get("record_id"), f.get("reason"))
+                    for f in (gf.get("failures") or []):
+                        if f.get("reason") in ("no_fields_recovered", "no_source_text", "no_fillable_missing"):
+                            self._gf_cooldown[f["record_id"]] = 60
             except Exception as exc:
                 self.logger.error("Cycle %d: gold-factory failed: %s", cycle, exc)
+
+        if self._gf_cooldown:
+            self._gf_cooldown = {rid: n - 1 for rid, n in self._gf_cooldown.items() if n > 1}
 
         self.budget.check_alerts(logger=self.logger, notify=self.notify)
 

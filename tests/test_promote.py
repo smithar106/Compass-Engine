@@ -268,6 +268,32 @@ class TestGoldFactory(unittest.TestCase):
         self.assertIn("skipped", res)
         self.assertEqual(res["applied"], 0)
 
+    def test_gold_factory_honors_exclude_ids(self):
+        from unittest.mock import patch
+        from compass_agent.promote import run_gold_factory
+        from compass_agent.daemon import BudgetTracker
+
+        budget = BudgetTracker(max_daily=25, max_total=50)
+        records = [
+            {
+                "id": f"r{i}",
+                "organization_name": f"Org{i}",
+                "intervention_title": f"Impl {i}",
+                "intervention_components": {"source_url": f"https://example.com/{i}"},
+                "metrics": [],
+            }
+            for i in range(3)
+        ]
+        with patch("compass_agent.promote.load_records_from_engine", return_value=records):
+            res = run_gold_factory(
+                self._settings(), budget, max_applications=2, limit=10,
+                exclude_ids={"r0", "r1"},
+            )
+        # excluded ids never get applied (no API call would be made for them);
+        # candidates still counted but fewer, and failures carry the exclusion.
+        self.assertEqual(res["candidates"], 1)
+        self.assertEqual(res["applied"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
