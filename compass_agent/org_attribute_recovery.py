@@ -116,6 +116,31 @@ def _source_rank(session, rec: Any) -> int:
     return 0
 
 
+def _sync_columns(rec: Any, entries: Optional[dict] = None) -> None:
+    """Write recovered attributes onto the dedicated model columns.
+
+    The coverage endpoint reads ``organization_geography`` (JSON list),
+    ``organization_employee_count`` (int) and ``organization_employee_band``
+    (str) — not the ``organization_normalized`` dict. Sync both.
+    """
+    norm = getattr(rec, "organization_normalized", None) or {}
+    if not isinstance(norm, dict):
+        return
+    entries = entries or {}
+    geo_entry = entries.get("geography") or (norm.get("geography") if isinstance(norm.get("geography"), dict) else None)
+    if geo_entry and isinstance(geo_entry, dict) and geo_entry.get("value"):
+        rec.organization_geography = [str(geo_entry["value"])]
+    emp_entry = entries.get("employee_count") or (norm.get("employee_count") if isinstance(norm.get("employee_count"), dict) else None)
+    if emp_entry and isinstance(emp_entry, dict) and emp_entry.get("value"):
+        try:
+            rec.organization_employee_count = int(str(emp_entry["value"]).replace(",", ""))
+        except (TypeError, ValueError):
+            pass
+    band_entry = entries.get("employee_band") or (norm.get("employee_band") if isinstance(norm.get("employee_band"), dict) else None)
+    if band_entry and isinstance(band_entry, dict) and band_entry.get("value"):
+        rec.organization_employee_band = str(band_entry["value"])
+
+
 def _build_prompt(rec: Any) -> str:
     comps = getattr(rec, "intervention_components", None) or {}
     url = str(comps.get("source_url") or "") if isinstance(comps, dict) else ""
@@ -202,6 +227,24 @@ def run_org_attribute_recovery(
     session = Session()
     try:
         records = session.query(InterventionRecord).limit(limit).all()
+        # One-time backfill: copy recovered attributes already in the
+        # organization_normalized dict onto the dedicated columns (the
+        # coverage endpoint reads the columns).
+        synced = 0
+        for r in records:
+            norm = getattr(r, "organization_normalized", None) or {}
+            if not isinstance(norm, dict):
+                continue
+            needs_sync = (
+                (norm.get("geography") and not (r.organization_geography or []))
+                or (norm.get("employee_count") and r.organization_employee_count is None)
+                or (norm.get("employee_band") and not r.organization_employee_band)
+            )
+            if needs_sync:
+                _sync_columns(r)
+                synced += 1
+        if synced and not dry_run:
+            session.commit()
         candidates = [r for r in records if _candidate(r)]
         candidates.sort(key=lambda r: _source_rank(session, r), reverse=True)
         candidates = candidates[:max_applications]
@@ -271,6 +314,7 @@ def run_org_attribute_recovery(
             norm = dict(getattr(rec, "organization_normalized", None) or {})
             norm.update(entries)
             rec.organization_normalized = norm
+            _sync_columns(rec, entries)
             applied += 1
             recovered += len(entries)
             if "geography" in entries:
@@ -292,8 +336,8 @@ def run_org_attribute_recovery(
         "employee_count_recovered": emp_recovered,
         "failed": failed,
         "cost_usd": round(cost, 6),
+        "columns_synced": synced,
     }
-
 
 __all__ = [
     "run_org_attribute_recovery",

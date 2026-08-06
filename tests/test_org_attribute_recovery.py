@@ -123,6 +123,10 @@ class TestWorkerEndToEnd(unittest.TestCase):
         self.assertEqual(norm["geography"]["value"], "Germany")
         self.assertEqual(norm["employee_count"]["value"], "1200")
         self.assertEqual(norm["employee_band"]["value"], "1000-10000")
+        # dedicated columns must also be populated (coverage endpoint reads them)
+        self.assertEqual(r1.organization_geography, ["Germany"])
+        self.assertEqual(r1.organization_employee_count, 1200)
+        self.assertEqual(r1.organization_employee_band, "1000-10000")
         s.close()
 
     def test_dry_run_calls_nothing(self):
