@@ -101,14 +101,15 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
             rec.intervention_components = {}
         rec.intervention_components.setdefault("source_generation", "agent_enriched")
 
+        # Whether to recompute evidence tier below: used by reclassify.
+        from compass_collector.models.intervention import MetricRecord as _MetricRecord
+
         # Upsert metric rows contributed by this source (idempotent on re-run).
         if req.metrics:
-            from compass_collector.models.intervention import MetricRecord
-
             metric_source = req.source if str(req.source).endswith(":promote") else f"{req.source}:promote"
-            db.query(MetricRecord).filter(
-                MetricRecord.intervention_id == rec.id,
-                MetricRecord.source_id == metric_source,
+            db.query(_MetricRecord).filter(
+                _MetricRecord.intervention_id == rec.id,
+                _MetricRecord.source_id == metric_source,
             ).delete(synchronize_session=False)
             for m in req.metrics:
                 if not isinstance(m, dict):
@@ -118,7 +119,7 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
                 except (TypeError, ValueError):
                     pct = None
                 db.add(
-                    MetricRecord(
+                    _MetricRecord(
                         id=str(uuid.uuid4()),
                         intervention_id=rec.id,
                         source_id=metric_source,
@@ -137,7 +138,7 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
         if req.reclassify:
             from compass_collector.api.evidence_tier import classify_evidence_tier
 
-            metrics = db.query(MetricRecord).filter(MetricRecord.intervention_id == rec.id).all()
+            metrics = db.query(_MetricRecord).filter(_MetricRecord.intervention_id == rec.id).all()
             tier = classify_evidence_tier(rec, metrics)
             rec.evidence_level = tier
             if not isinstance(rec.intervention_components, dict):

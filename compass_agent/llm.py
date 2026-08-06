@@ -30,7 +30,7 @@ PRICING: dict[str, dict[str, float]] = {
 
 DEFAULT_MODELS = {
     "deepseek": "deepseek-chat",
-    "anthropic": "claude-sonnet-4-20250514",
+    "anthropic": "claude-sonnet-4-5-20250929",
 }
 
 # Conservative output-token budget for a structured extraction call.
@@ -205,15 +205,30 @@ class LLMClient:
         """
         if not self.can_run:
             raise RuntimeError("LLM client has no API key configured")
-        body = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user + "\n\n" + (text or "")[:8000]},
-            ],
-            "temperature": 0.0,
-            "max_tokens": 8192,
-        }
+        system = (system or "").strip()
+        messages = (
+            [{"role": "system", "content": system},
+             {"role": "user", "content": user + "\n\n" + (text or "")[:8000]}]
+            if system else
+            [{"role": "user", "content": user + "\n\n" + (text or "")[:8000]}]
+        )
+        if self.provider == "anthropic":
+            # Anthropic requires the system prompt as a top-level parameter,
+            # not a system-role message.
+            body = {
+                "model": self.model,
+                "system": system,
+                "messages": [m for m in messages if m["role"] != "system"],
+                "temperature": 0.0,
+                "max_tokens": 8192,
+            }
+        else:
+            body = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.0,
+                "max_tokens": 8192,
+            }
         endpoint = self._endpoint()
         headers = {"Content-Type": "application/json"}
         if self.provider == "deepseek":

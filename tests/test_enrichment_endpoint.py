@@ -157,6 +157,27 @@ class TestEnrichmentEndpoint(unittest.TestCase):
         session.close()
         self.assertEqual(rec.evidence_level, "gold")
 
+    def test_reclassify_without_metrics_does_not_500(self):
+        """Regression: reclassify must work when the request carries no metric
+        rows (MetricRecord import used to be scoped to the metrics branch)."""
+        from compass_collector.api.enrichment_router import EnrichmentRequest, ingest_enrichment
+
+        session = _TestSession()
+        session.add(InterventionRecord(id="rec-r", organization_name="Delta Foods", review_status="pending"))
+        session.commit()
+        session.close()
+
+        req = EnrichmentRequest(
+            record_id="rec-r",
+            source="compass_agent:promote",
+            fields={"has_baseline": True, "problem_baseline_description": "Manual, 3 days/cycle"},
+            reclassify=True,
+        )
+        with patch("compass_collector.api.enrichment_router.get_session", side_effect=lambda: _TestSession()):
+            result = ingest_enrichment(req, FakeRequest({"X-Compass-Agent-Key": "sync-secret"}))
+        self.assertEqual(result["updated"], 2)
+        self.assertIn("evidence_level", result)
+
     def test_missing_record_404(self):
         from fastapi import HTTPException
 

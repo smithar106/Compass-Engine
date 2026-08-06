@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time
 from collections import Counter
@@ -469,21 +470,63 @@ def _timeframe_fields(value, text: str) -> dict:
             num = float(value.get("value"))
         except (TypeError, ValueError):
             return {}
+        unit = str(value.get("unit") or "")[:40]
         return {
             "intervention_measurement_period_value": num,
-            "intervention_measurement_period_unit": str(value.get("unit") or "months")[:40],
+            "intervention_measurement_period_unit": unit or "months",
         }
+    if isinstance(value, (int, float)):
+        return {
+            "intervention_measurement_period_value": value,
+            "intervention_measurement_period_unit": "months",
+        }
+    if isinstance(value, str):
+        s = value.strip()
+        num = _first_number(s)
+        if num is not None:
+            unit = "months"
+            lower = s.lower()
+            for u in ("years", "year", "quarters", "quarter", "months", "month",
+                      "weeks", "week", "days", "day"):
+                if u in lower:
+                    unit = u.rstrip("s") + ("s" if u.endswith("s") else "")
+                    if u in ("year", "years"):
+                        unit = "years"
+                    elif u in ("month", "months"):
+                        unit = "months"
+                    elif u in ("week", "weeks"):
+                        unit = "weeks"
+                    elif u in ("day", "days"):
+                        unit = "days"
+                    break
+            return {
+                "intervention_measurement_period_value": num,
+                "intervention_measurement_period_unit": unit,
+            }
     return {}
 
 
 def _sample_fields(value, text: str) -> dict:
-    try:
+    n = None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
         n = int(value)
-    except (TypeError, ValueError):
-        return {}
-    if n > 1:
+    elif isinstance(value, str):
+        m = _first_number(value)
+        if m is not None:
+            n = m
+    if n is not None and n > 1:
         return {"sample_size": n}
     return {}
+
+
+def _first_number(value: str):
+    m = re.search(r"(\d[\d,]*\.?\d*)", value or "")
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
 
 
 # ── DB loading ───────────────────────────────────────────────────────────
