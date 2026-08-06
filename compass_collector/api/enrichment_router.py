@@ -172,7 +172,7 @@ def ingest_evidence(req: IngestRequest, request: Request):
     from compass_collector.models.intervention import InterventionRecord, MetricRecord
 
     tier = str(req.evidence_tier or "").lower()
-    if tier not in ("gold", "silver", "bronze"):
+    if tier not in ("gold", "decision_grade", "silver", "supporting", "bronze"):
         return {"accepted": False, "reason": f"invalid_evidence_tier:{tier}"}
 
     org = (req.organization_name or "").strip()
@@ -205,7 +205,7 @@ def ingest_evidence(req: IngestRequest, request: Request):
             1 for k in ("success_criteria", "lessons_learned", "implementation_pattern")
             if impl.get(k) and (isinstance(impl[k], list) and impl[k] or str(impl[k]).strip())
         )
-        rich = (tier in ("gold", "silver")) or impl_depth >= 2
+        rich = (tier in ("gold", "decision_grade", "silver")) or impl_depth >= 2
         # Quality gate: accept only if expected to improve the brief.
         if not rich:
             db.close()
@@ -344,6 +344,54 @@ def list_records(limit: int = 500, offset: int = 0, tier: str = "", request: Req
             ]
             out.append(d)
         return {"records": out, "total": total, "limit": limit, "offset": offset}
+    finally:
+        db.close()
+
+
+@router.post("/reclassify")
+def reclassify_all(request: Request = None):
+    """Re-run tier classification across the whole corpus and persist it.
+
+    Migrates stored legacy tiers (silver/bronze) onto the decision taxonomy
+    (gold / decision_grade / supporting / rejected). Idempotent — re-running
+    converges to the same labels. Returns per-tier before/after counts.
+    """
+    from collections import Counter
+
+    from compass_collector.api.evidence_tier import classify_evidence_tier
+    from compass_collector.models.intervention import MetricRecord as _MR, PassageRecord as _PR
+
+    if not _authorized(request):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    db = get_session()
+    try:
+        records = db.query(InterventionRecord).all()
+        metrics_by_id: dict = {}
+        for m in db.query(_MR).all():
+            metrics_by_id.setdefault(m.intervention_id, []).append(m)
+        passages_by_id: dict = {}
+        for p in db.query(_PR).all():
+            passages_by_id.setdefault(p.intervention_id, []).append(p)
+
+        before = Counter((r.evidence_level or "").lower() or "supporting" for r in records)
+        changed = 0
+        for rec in records:
+            tier = classify_evidence_tier(rec, metrics_by_id.get(rec.id, []), passages_by_id.get(rec.id, []))
+            if (rec.evidence_level or "").lower() != tier:
+                rec.evidence_level = tier
+                if not isinstance(rec.intervention_components, dict):
+                    rec.intervention_components = {}
+                rec.intervention_components["evidence_tier"] = tier
+                changed += 1
+        db.commit()
+        after = Counter((r.evidence_level or "").lower() for r in records)
+        return {
+            "records": len(records),
+            "changed": changed,
+            "before": dict(before),
+            "after": dict(after),
+        }
     finally:
         db.close()
 

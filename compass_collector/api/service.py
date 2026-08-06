@@ -176,21 +176,27 @@ def _is_reasonable_impact(value: float, unit: str = "") -> bool:
 # Evidence classification helpers
 # ---------------------------------------------------------------------------
 
-def _overall_tier(gold: int, silver: int, bronze: int) -> str:
+def _strong_count(values: list) -> int:
+    """Count comparables that are strong enough to drive a recommendation:
+    gold (certification) + decision_grade (quantified, rich implementation)."""
+    return sum(1 for v in values if v.get("tier") in ("gold", "decision_grade"))
+
+
+def _overall_tier(gold: int, decision_grade: int, supporting: int) -> str:
     if gold >= 2:
         return "gold"
-    if gold + silver >= 3:
-        return "silver"
-    if gold + silver + bronze >= 1:
-        return "bronze"
+    if gold + decision_grade >= 3:
+        return "decision_grade"
+    if gold + decision_grade + supporting >= 1:
+        return "supporting"
     return "insufficient"
 
 
-def _confidence_label_and_explanation(score: float, total: int, gold: int, silver: int) -> tuple:
+def _confidence_label_and_explanation(score: float, total: int, gold: int, decision_grade: int) -> tuple:
     if score >= 70 and total >= 5 and gold >= 2:
-        return "strong", f"Strong confidence based on {total} comparable implementations including {gold} gold-tier and {silver} silver-tier sources with quantified outcomes."
+        return "strong", f"Strong confidence based on {total} comparable implementations including {gold} gold-tier and {gold + decision_grade} gold/decision-grade sources with quantified outcomes."
     if score >= 50 and total >= 3:
-        return "moderate", f"Moderate confidence based on {total} comparable implementations with {gold + silver} gold/silver-tier sources."
+        return "moderate", f"Moderate confidence based on {total} comparable implementations with {gold + decision_grade} gold/decision-grade sources."
     if score >= 30 and total >= 1:
         return "limited", f"Limited confidence: {total} comparable implementation{'s' if total != 1 else ''} found, but quantified outcome data is sparse."
     return "insufficient", "Insufficient comparable evidence to calculate confidence."
@@ -507,8 +513,8 @@ def _calculate_outcome_ranges(comparables: list[ComparableEvidence]) -> list[Out
 
         nums = [v["value"] for v in values]
         gold = sum(1 for v in values if v["tier"] == "gold")
-        silver = sum(1 for v in values if v["tier"] == "silver")
-        bronze = sum(1 for v in values if v["tier"] == "bronze")
+        decision_grade = sum(1 for v in values if v["tier"] in ("decision_grade", "silver"))
+        supporting = sum(1 for v in values if v["tier"] in ("supporting", "bronze"))
 
         nums_sorted = sorted(nums)
         n = len(nums_sorted)
@@ -549,8 +555,8 @@ def _calculate_outcome_ranges(comparables: list[ComparableEvidence]) -> list[Out
             high=round(f_sorted[-1], 1),
             sample_size=len(values),
             gold_count=gold,
-            silver_count=silver,
-            bronze_count=bronze,
+            decision_grade_count=decision_grade,
+            supporting_count=supporting,
             directly_comparable=True,
             calculation_method=calc_method,
             source_record_ids=list(source_ids[key]),
@@ -1111,7 +1117,7 @@ def _build_next_validation_step(rank: int, category_id: str, comparables_total: 
 # Risk engine
 # ---------------------------------------------------------------------------
 
-def _build_trace(comparables, total: int, gold: int, silver: int, req) -> Optional[RecommendationTrace]:
+def _build_trace(comparables, total: int, gold: int, decision_grade: int, req) -> Optional[RecommendationTrace]:
     """Retained defensibility trace: primary factor reasons, evidence counts,
     and the primary uncertainty (sparse comparable orgs at the customer's
     employee scale)."""
@@ -1137,7 +1143,7 @@ def _build_trace(comparables, total: int, gold: int, silver: int, req) -> Option
             TraceFactor(factor=factor, raw=round(max(vals), 2), weighted=round(max(vals), 2))
         )
 
-    mixed = max(0, total - gold - silver)
+    mixed = max(0, total - gold - decision_grade)
     uncertainty = ""
     size_covered = sum(
         1 for c in comparables if (c.organization_size or 0) > 0
@@ -1149,7 +1155,7 @@ def _build_trace(comparables, total: int, gold: int, silver: int, req) -> Option
 
     return RecommendationTrace(
         primary_reasons=reasons[:5],
-        evidence={"gold": gold, "silver": silver, "mixed": mixed, "total": total},
+        evidence={"gold": gold, "decision_grade": decision_grade, "mixed": mixed, "total": total},
         primary_uncertainty=uncertainty,
         comparable_count=total,
     )
@@ -1208,7 +1214,7 @@ def _build_risks(
 
     failed_orgs = set()
     for c in comparables:
-        if c.evidence_tier == "bronze" and c.organization:
+        if c.evidence_tier in ("supporting", "bronze") and c.organization:
             failed_orgs.add(c.organization)
 
     if failed_orgs:
@@ -1344,12 +1350,12 @@ def _build_recommendations(
         comparables = _classify_comparables(raw_examples, family_id, used_records)
 
         gold = sum(1 for c in comparables if c.evidence_tier == "gold")
-        silver = sum(1 for c in comparables if c.evidence_tier == "silver")
-        bronze = sum(1 for c in comparables if c.evidence_tier == "bronze")
+        decision_grade = sum(1 for c in comparables if c.evidence_tier == "decision_grade")
+        supporting = sum(1 for c in comparables if c.evidence_tier in ("supporting", "silver", "bronze"))
         total = len(comparables)
 
-        overall_tier = _overall_tier(gold, silver, bronze)
-        confidence_label, confidence_explanation = _confidence_label_and_explanation(comp_score, total, gold, silver)
+        overall_tier = _overall_tier(gold, decision_grade, supporting)
+        confidence_label, confidence_explanation = _confidence_label_and_explanation(comp_score, total, gold, decision_grade)
 
         savings, hours = _estimate_impact(comparables, family_id, req)
         timeline = _estimate_timeline(family_id, comparables)
@@ -1378,8 +1384,8 @@ def _build_recommendations(
         why_ranked.append(f"{_pluralize(total, 'comparable implementation')} found")
         if gold > 0:
             why_ranked.append(f"{_pluralize(gold, 'gold-tier evidence source')}")
-        if silver > 0:
-            why_ranked.append(f"{_pluralize(silver, 'silver-tier evidence source')}")
+        if decision_grade > 0:
+            why_ranked.append(f"{_pluralize(decision_grade, 'decision-grade evidence source')}")
 
         rationale = inv.get("description", "")[:200]
 
@@ -1398,7 +1404,7 @@ def _build_recommendations(
             subtitle=CATEGORY_SUBTITLES.get(family_id, ""),
             description=rationale,
             selection_status="recommended",
-            rationale=f"Ranked based on {_pluralize(total, 'comparable implementation')}, {_pluralize(gold + silver, 'gold/silver-tier source')}, and workflow fit score of {comp_score}%.",
+            rationale=f"Ranked based on {_pluralize(total, 'comparable implementation')}, {_pluralize(gold + decision_grade, 'gold/decision-grade source')}, and workflow fit score of {comp_score}%.",
             why_it_ranked_here=why_ranked,
             assumptions=_build_assumptions(inv, total),
             confidence=Confidence(
@@ -1411,9 +1417,9 @@ def _build_recommendations(
                 overall_tier=overall_tier,
                 total_comparables=total,
                 gold_count=gold,
-                silver_count=silver,
-                bronze_count=bronze,
-                status_breakdown={"total": total, "gold": gold, "silver": silver, "bronze": bronze},
+                decision_grade_count=decision_grade,
+                supporting_count=supporting,
+                status_breakdown={"total": total, "gold": gold, "decision_grade": decision_grade, "supporting": supporting},
                 average_evidence_score=round(inv.get("evidence_score", 0), 1),
             ),
             outcome_ranges=outcome_ranges,
@@ -1423,7 +1429,7 @@ def _build_recommendations(
             assumptions_detail=assumptions_detail,
             information_gaps=information_gaps,
             next_validation_step=next_step,
-            trace=_build_trace(comparables, total, gold, silver, req),
+            trace=_build_trace(comparables, total, gold, decision_grade, req),
             counterevidence=_build_counterevidence(comparables),
         )
         ranked.append(rec)

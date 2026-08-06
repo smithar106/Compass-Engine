@@ -266,6 +266,42 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestReclassifyAll(unittest.TestCase):
+    def _call(self):
+        from compass_collector.api.enrichment_router import reclassify_all
+
+        with patch("compass_collector.api.enrichment_router.get_session", side_effect=lambda: _TestSession()):
+            return reclassify_all(FakeRequest({"X-Compass-Agent-Key": "sync-secret"}))
+
+    def test_reclassify_migrates_legacy_tiers(self):
+        s = _TestSession()
+        s.add(InterventionRecord(
+            id="reclass-1", organization_name="Acme Corp",
+            evidence_level="silver",
+            implementation_richness="rich",
+            result_status="completed",
+        ))
+        s.commit()
+        from compass_collector.models.intervention import MetricRecord
+        s.add(MetricRecord(id="rm1", intervention_id="reclass-1", metric_name="cost", percentage_change=-25))
+        s.commit()
+        s.close()
+
+        result = self._call()
+        self.assertEqual(result["records"], 2)  # rec-1 + reclass-1
+        # rec-1 (no metrics, no rich) stays supporting; reclass-1 (quantified + rich) -> decision_grade
+        self.assertEqual(result["after"].get("decision_grade", 0), 1)
+
+    def test_unauthorized(self):
+        from compass_collector.api.enrichment_router import reclassify_all
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as ctx:
+            with patch("compass_collector.api.enrichment_router.get_session", side_effect=lambda: _TestSession()):
+                reclassify_all(FakeRequest({"X-Compass-Agent-Key": "wrong"}))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+
 class TestOutcomeEndpoint(unittest.TestCase):
     def test_record_and_list_outcome(self):
         from compass_collector.api.outcome_router import OutcomeRequest, record_outcome, list_outcomes

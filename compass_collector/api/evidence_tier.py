@@ -1,10 +1,32 @@
 from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord
 
 
+# Decision tiers (product-facing), not engineering buckets:
+#   gold           — certification: fully quantified, known deployment, executive-ready
+#   decision_grade — strong implementation with a quantified outcome; minor gaps OK.
+#                    This is what recommendations use (weighted below gold).
+#   supporting     — adds context; not enough for a primary recommendation alone.
+#   rejected       — academic-only / vendor-only / no real org.
 EVIDENCE_TIER_GOLD = "gold"
-EVIDENCE_TIER_SILVER = "silver"
-EVIDENCE_TIER_BRONZE = "bronze"
+EVIDENCE_TIER_DECISION_GRADE = "decision_grade"
+EVIDENCE_TIER_SUPPORTING = "supporting"
 EVIDENCE_TIER_REJECTED = "rejected"
+
+# Legacy names map to decision tiers so old stored values keep meaning.
+EVIDENCE_TIER_SILVER = "silver"  # legacy → decision_grade or supporting
+EVIDENCE_TIER_BRONZE = "bronze"  # legacy → supporting
+
+
+def decision_tier_name(tier: str) -> str:
+    """Map any stored/legacy tier value onto the current decision taxonomy."""
+    t = (tier or "").lower()
+    if t in (EVIDENCE_TIER_GOLD, EVIDENCE_TIER_DECISION_GRADE, EVIDENCE_TIER_SUPPORTING, EVIDENCE_TIER_REJECTED):
+        return t
+    if t in (EVIDENCE_TIER_SILVER,):
+        return EVIDENCE_TIER_DECISION_GRADE
+    if t in (EVIDENCE_TIER_BRONZE, ""):
+        return EVIDENCE_TIER_SUPPORTING
+    return EVIDENCE_TIER_SUPPORTING
 
 
 def classify_evidence_tier(
@@ -45,14 +67,36 @@ def classify_evidence_tier(
     if is_vendor:
         gold_score -= 2
 
+    # Gold stays a certification: fully quantified with known deployment.
     if gold_score >= 8:
         return EVIDENCE_TIER_GOLD
-    if gold_score >= 4:
-        return EVIDENCE_TIER_SILVER
+
+    # Decision Grade: a quantified outcome on a rich implementation. Minor gaps
+    # (no stored deployment status, no baseline) are acceptable — the outcome is
+    # the decision-grade signal, not the last metadata field.
+    if has_measurable_outcome and _is_implementation_rich(record):
+        return EVIDENCE_TIER_DECISION_GRADE
+
     if gold_score >= 1:
-        return EVIDENCE_TIER_BRONZE
+        return EVIDENCE_TIER_SUPPORTING
 
     return EVIDENCE_TIER_REJECTED
+
+
+def _is_implementation_rich(record: InterventionRecord) -> bool:
+    richness = (record.implementation_richness or "").lower()
+    if richness in ("gold", "silver", "rich"):
+        return True
+    # Fall back to component richness when the field was never populated.
+    comps = record.intervention_components
+    if not isinstance(comps, dict):
+        return False
+    rich_keys = {
+        "workflow", "intervention_category", "implementation_pattern",
+        "implementation_partner", "lessons_learned", "rollout_strategy",
+    }
+    populated = sum(1 for k in rich_keys if comps.get(k))
+    return populated >= 2
 
 
 def _is_academic_or_vendor_only(record: InterventionRecord) -> bool:
@@ -78,7 +122,7 @@ def classify_tier_for_comparable(comparable: dict) -> str:
     org = comparable.get("organization", "")
     org_lower = org.lower()
     if not org or any(k in org_lower for k in ["university", "college", "research"]):
-        return EVIDENCE_TIER_BRONZE
+        return EVIDENCE_TIER_REJECTED
 
     outcomes = comparable.get("outcomes") or comparable.get("outcome_summaries") or []
     has_outcome = bool(outcomes)
@@ -107,6 +151,8 @@ def classify_tier_for_comparable(comparable: dict) -> str:
 
     if gold_score >= 8:
         return EVIDENCE_TIER_GOLD
-    if gold_score >= 4:
-        return EVIDENCE_TIER_SILVER
-    return EVIDENCE_TIER_BRONZE
+    # Comparables with a quantified outcome are decision-grade for recommendation
+    # purposes even when provenance metadata is thin.
+    if has_outcome and gold_score >= 4:
+        return EVIDENCE_TIER_DECISION_GRADE
+    return EVIDENCE_TIER_SUPPORTING

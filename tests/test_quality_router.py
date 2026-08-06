@@ -46,6 +46,7 @@ class TestRecommendationQuality(unittest.TestCase):
                 id="s1", organization_name="Beta Inc", problem_business_function=["finance"],
                 intervention_components={"workflow": "expense reporting"},
                 result_status="completed",
+                implementation_richness="rich",
             ),
             InterventionRecord(
                 id="b1", organization_name="Delta", problem_business_function=["supply_chain"],
@@ -71,8 +72,8 @@ class TestRecommendationQuality(unittest.TestCase):
         eq = result["evidence_quality"]
         self.assertEqual(result["library_size"], 3)
         self.assertEqual(eq["gold"], 1)
-        self.assertEqual(eq["silver"], 1)
-        self.assertEqual(eq["bronze"], 1)
+        self.assertEqual(eq["decision_grade"], 1)
+        self.assertEqual(eq["supporting"], 1)
         self.assertEqual(eq["high_quality"], 2)
         self.assertAlmostEqual(eq["high_quality_pct"], 66.7, delta=0.1)
 
@@ -91,7 +92,7 @@ class TestRecommendationQuality(unittest.TestCase):
 
     def test_north_star(self):
         result = self._call()
-        self.assertEqual(result["north_star"]["1_500_gold"], 1)
+        self.assertEqual(result["north_star"]["1_500_decision_grade"], 2)
 
     def test_unauthorized(self):
         from compass_collector.api.quality_router import recommendation_quality

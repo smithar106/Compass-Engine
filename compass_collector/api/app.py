@@ -73,17 +73,17 @@ def _compute_metadata() -> dict:
         for p in session.query(PassageRecord).all():
             passages_by_id.setdefault(p.intervention_id, []).append(p)
 
-        gold = silver = bronze = 0
+        gold = decision_grade = supporting = 0
         unique_orgs: set = set()
         industries: set = set()
         for rec in records:
             tier = classify_evidence_tier(rec, metrics_by_id.get(rec.id, []), passages_by_id.get(rec.id, []))
             if tier == "gold":
                 gold += 1
-            elif tier == "silver":
-                silver += 1
-            elif tier == "bronze":
-                bronze += 1
+            elif tier == "decision_grade":
+                decision_grade += 1
+            else:
+                supporting += 1
             if rec.organization_name:
                 unique_orgs.add(rec.organization_name)
             for ind in rec.organization_industry or []:
@@ -110,8 +110,8 @@ def _compute_metadata() -> dict:
             "measured_outcomes": measured_outcomes,
             "decision_questions": 8,
             "gold": gold,
-            "silver": silver,
-            "bronze": bronze,
+            "decision_grade": decision_grade,
+            "supporting": supporting,
             "last_published_at": last_published_at,
             "engine_version": "3.1.0",
         }

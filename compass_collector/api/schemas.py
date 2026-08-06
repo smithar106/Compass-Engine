@@ -136,8 +136,8 @@ class OutcomeRange(BaseModel):
     high: Optional[float] = None
     sample_size: int = 0
     gold_count: int = 0
-    silver_count: int = 0
-    bronze_count: int = 0
+    decision_grade_count: int = 0
+    supporting_count: int = 0
     directly_comparable: bool = True
     compatibility_notes: str = ""
     calculation_method: str = "median_minmax"
@@ -217,11 +217,11 @@ class NextValidationStep(BaseModel):
 
 
 class EvidenceSummary(BaseModel):
-    overall_tier: str = "bronze"
+    overall_tier: str = "supporting"
     total_comparables: int = 0
     gold_count: int = 0
-    silver_count: int = 0
-    bronze_count: int = 0
+    decision_grade_count: int = 0
+    supporting_count: int = 0
     status_breakdown: dict = {}
     average_evidence_score: float = 0
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from compass_collector.api.enrichment_router import _authorized
+from compass_collector.api.evidence_tier import decision_tier_name
 from compass_collector.database import get_session
 from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord
 
@@ -48,6 +49,11 @@ def _is_gold(pages_tier: str) -> bool:
     return (pages_tier or "").lower() == "gold"
 
 
+def _is_decision_grade(pages_tier: str) -> bool:
+    t = (pages_tier or "").lower()
+    return t in ("decision_grade", "gold")
+
+
 @router.get("/pages/{record_id}")
 def gold_page(record_id: str, request: Request = None):
     """A structured implementation asset page."""
@@ -69,7 +75,9 @@ def gold_page(record_id: str, request: Request = None):
         comps = {}
 
     tier = rec.evidence_level or comps.get("evidence_tier") or "unknown"
+    tier = decision_tier_name(tier)
     is_gold = _is_gold(tier)
+    is_decision_grade = _is_decision_grade(tier)
 
     return {
         "implementation": {
@@ -77,6 +85,7 @@ def gold_page(record_id: str, request: Request = None):
             "title": rec.intervention_title,
             "tier": tier,
             "is_gold_asset": is_gold,
+            "is_decision_grade": is_decision_grade,
             "source_url": comps.get("source_url") or rec.source_id or "",
             "organization": {
                 "name": rec.organization_name,

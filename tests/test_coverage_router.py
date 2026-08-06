@@ -52,6 +52,7 @@ class TestDecisionCoverage(unittest.TestCase):
                 id="f-s1", organization_name="Gamma LLC", problem_business_function=["finance"],
                 intervention_components={"workflow": "expense reporting"},
                 result_status="completed",
+                implementation_richness="rich",
             ),
             InterventionRecord(
                 id="f-b1", organization_name="Delta", problem_business_function=["finance"],
@@ -85,7 +86,7 @@ class TestDecisionCoverage(unittest.TestCase):
         supply = next(r for r in result["by_business_function"] if r["key"] == "supply_chain")
         self.assertEqual(finance["total"], 4)
         self.assertEqual(finance["gold"], 2)
-        self.assertEqual(finance["silver"], 1)
+        self.assertEqual(finance["decision_grade"], 1)
         self.assertEqual(finance["high_quality"], 3)
         self.assertEqual(supply["high_quality"], 0)
         self.assertEqual(supply["coverage"], "limited")

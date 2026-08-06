@@ -26,7 +26,7 @@ from compass_collector.models.intervention import InterventionRecord, MetricReco
 
 router = APIRouter(prefix="/api/evidence", tags=["quality"])
 
-HIGH_QUALITY_TIERS = ("gold", "silver")
+HIGH_QUALITY_TIERS = ("gold", "decision_grade")
 
 
 def _coverage_goodish(coverage: str) -> bool:
@@ -92,12 +92,12 @@ def recommendation_quality(request: Request = None):
             has_provenance += 1
 
     total = len(records)
-    high = tiers["gold"] + tiers["silver"]
+    high = tiers["gold"] + tiers["decision_grade"]
 
     # Coverage: share of functions whose high-quality depth is good/excellent.
     func_coverage = []
     for fn, c in qual_by.items():
-        fh = c["gold"] + c["silver"]
+        fh = c["gold"] + c["decision_grade"]
         fratio = fh / max(sum(c.values()), 1)
         coverage = "absent" if fh == 0 else ("excellent" if fh >= 25 and fratio >= 0.25 else ("good" if fh >= 10 or fratio >= 0.5 else ("developing" if fh >= 4 or fratio >= 0.1 else "limited")))
         func_coverage.append({"function": fn, "high_quality": fh, "total": sum(c.values()), "coverage": coverage})
@@ -109,8 +109,8 @@ def recommendation_quality(request: Request = None):
         "library_size": total,
         "evidence_quality": {
             "gold": tiers["gold"],
-            "silver": tiers["silver"],
-            "bronze": tiers["bronze"],
+            "decision_grade": tiers["decision_grade"],
+            "supporting": tiers["supporting"],
             "rejected": tiers["rejected"],
             "high_quality": high,
             "high_quality_pct": round(100 * high / max(total, 1), 1),
@@ -133,7 +133,7 @@ def recommendation_quality(request: Request = None):
             "unique_workflows": len(workflows),
         },
         "north_star": {
-            "1_500_gold": tiers["gold"],  # progress toward the Gold north star
+            "1_500_decision_grade": tiers["gold"] + tiers["decision_grade"],
         },
     }
 

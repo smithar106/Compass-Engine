@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/evidence", tags=["coverage"])
 EXCELLENT_SOFT = 25
 GOOD_SOFT = 10
 DEV_MIN = 4
-HIGH_QUALITY_TIERS = ("gold", "silver")
+HIGH_QUALITY_TIERS = ("gold", "decision_grade")
 
 
 def _coverage(total_high: int, ratio: float) -> str:
@@ -86,25 +86,25 @@ def decision_coverage(request: Request = None):
 
         raw_funcs = [f for f in (rec.problem_business_function or []) if f] or ["uncategorized"]
         for fn in raw_funcs:
-            b = funcs.setdefault(fn, {"total": 0, "gold": 0, "silver": 0, "bronze": 0, "rejected": 0})
+            b = funcs.setdefault(fn, {"total": 0, "gold": 0, "decision_grade": 0, "supporting": 0, "rejected": 0})
             b["total"] += 1
             b[tier] += 1
 
         wf = _workflow(rec)
-        w = workflows.setdefault(wf, {"total": 0, "gold": 0, "silver": 0, "bronze": 0, "rejected": 0})
+        w = workflows.setdefault(wf, {"total": 0, "gold": 0, "decision_grade": 0, "supporting": 0, "rejected": 0})
         w["total"] += 1
         w[tier] += 1
 
     def _rows(buckets: dict) -> list:
         out = []
         for key, b in buckets.items():
-            high = b["gold"] + b["silver"]
+            high = b["gold"] + b["decision_grade"]
             ratio = high / max(b["total"], 1)
             out.append({
                 "key": key,
                 "total": b["total"],
                 "gold": b["gold"],
-                "silver": b["silver"],
+                "decision_grade": b["decision_grade"],
                 "high_quality": high,
                 "high_quality_pct": round(100 * ratio, 1),
                 "coverage": _coverage(high, ratio),

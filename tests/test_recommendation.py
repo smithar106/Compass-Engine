@@ -252,7 +252,7 @@ class TestRecommendationTrace(unittest.TestCase):
             self._comparable("C", size=0),  # no size data
             self._comparable("D", size=0),
         ]
-        trace = _build_trace(comps, total=4, gold=2, silver=1, req=None)
+        trace = _build_trace(comps, total=4, gold=2, decision_grade=1, req=None)
         self.assertIsNotNone(trace)
         self.assertEqual(trace.evidence["gold"], 2)
         self.assertTrue(trace.primary_reasons)  # top factor first
