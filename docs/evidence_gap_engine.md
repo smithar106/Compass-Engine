@@ -237,3 +237,33 @@ planner consumption order (shopping list before DDG).
 - Decision Coverage (per business function) is the headline KPI.
 - One executive trusts a recommendation enough to approve the project — and
   the gap report is what made the evidence defensible.
+
+---
+
+## 11. Implementation status
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 — Canonical vendors/technologies + hardened org backfill | **done** (branch `feat/canonical-vendor-technology`) | vendors 316→58, tech 280→72; canonical industry 30.3%→97.6% on snapshot |
+| 2 — Gap model v2 | **done** (`compass_agent/evidence_gap.py`, CLI `gaps`) | multi-dimensional needs, diversity/concentration flags, measured-demand override, sparse-dimension preferences, composed search terms, library priority; 12 tests |
+| 3 — Nightly report + persistence | **partial** | `--write` → `data/gaps/{evidence_gap_report,shopping_list}.json`; `GET /api/evidence/gaps` endpoint not yet wired (needs auth pattern from coverage_router) |
+| 4 — Discovery inversion | not started | planner consumes shopping list first |
+| 5 — Demand telemetry | not started | analyze/outcome query logging |
+| 6 — Enrichment feedback | not started | sparse dims → Outcome Discovery Worker |
+
+**Findings from the first production-shape run (on the 1,306-record snapshot):**
+
+1. **Workflow coverage is the critical data-quality lever.** 975/1,306 records
+   (75%) carry no `intervention_components.workflow` and collapse into
+   `uncategorized` — the decision-coverage KPI reads 0–1% on this snapshot
+   because categories are singletons. Production reports 78.2% workflow
+   coverage, so the engine must run against production (or a workflow-backfilled
+   DB) to produce a meaningful KPI. **Workflow canonicalization/backfill is
+   the next priority after org+vendor/tech backfills.**
+2. **Business-function labels were messy** ("Supply Chain Management",
+   "customer_support, marketing, operations") — `normalize_operational_function`
+   in `taxonomy.py` now collapses them onto the canonical set (multi-label and
+   slash values reduce to their first element; alias table extended).
+3. **Sparse dimensions degrade gracefully** — geography/employee-band gaps are
+   expressed as *preferences* + `data_limited_fields` flags, not hard filters.
+

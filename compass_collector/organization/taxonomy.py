@@ -962,11 +962,31 @@ def normalize_employee_count(raw) -> NormalizedValue:
 def normalize_operational_function(raw) -> NormalizedValue:
     if not raw:
         return NormalizedValue(raw="", value="", confidence=0.0)
-    key = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    text = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    # Multi-label values ("customer_support, marketing, operations",
+    # "Ancillary Revenue / Guest Services") reduce to their first element.
+    if "," in text or "/" in text:
+        text = text.split(",")[0].split("/")[0].strip("_ ")
+    key = text
     if key in OPERATIONAL_FUNCTIONS:
         return NormalizedValue(raw=raw, value=key, confidence=1.0)
     aliases = {
-        "hr": "human_resources", "support": "customer_support", "customer service": "customer_support",
+        "hr": "human_resources",
+        "support": "customer_support",
+        "customer_service": "customer_support",
+        "customer_support": "customer_support",
+        "supply_chain_management": "supply_chain",
+        "supply_chain_&_logistics": "supply_chain",
+        "logistics": "supply_chain",
+        "data_&_analytics": "operations",
+        "analytics": "operations",
+        "risk_management_/_fraud_prevention": "compliance",
+        "risk_management": "compliance",
+        "ancillary_revenue": "operations",
+        "guest_services": "operations",
+        "project_management": "operations",
+        "human_resources_/_recruiting": "human_resources",
+        "recruiting": "human_resources",
     }
     if key in aliases:
         return NormalizedValue(raw=raw, value=aliases[key], confidence=0.9)

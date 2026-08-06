@@ -51,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     camp = sub.add_parser("campaign", help="Evidence Operations: inspect gaps, plan/run targeted evidence campaigns")
     camp.add_argument("action", choices=["plan", "list", "run", "archive"], help="campaign action")
     camp.add_argument("--sources", type=int, default=3, help="max sources to discover per run")
+    gaps = sub.add_parser("gaps", help="Evidence Gap Engine v2: decision coverage KPI + nightly shopping list")
+    gaps.add_argument("--top", type=int, default=10, help="top-N shopping-list items")
+    gaps.add_argument("--min-impact", type=float, default=0.0, help="minimum expected impact to include")
+    gaps.add_argument("--demand-json", type=str, default="", help="path to workflow-slug→demand telemetry JSON")
+    gaps.add_argument("--write", action="store_true", help="persist report + shopping list to data/gaps/")
+    gaps.add_argument("--json", dest="as_json", action="store_true", help="machine-readable output")
     lib = sub.add_parser("libraries", help="Source Library dashboard: health, crawl, and prioritization")
     lib.add_argument("action", choices=["status", "crawl", "rank"], help="library action")
     lib.add_argument("--library", type=str, default="", help="library id to crawl")
@@ -311,6 +317,79 @@ def cmd_metrics(settings: Settings, problems: list[str]) -> int:
 
     report = compute_metrics(store_db=settings.store_db, collector_db=settings.candidate_db)
     print_metrics(report)
+    return 0
+
+
+def cmd_gaps(settings: Settings, problems: list[str], top: int, min_impact: float,
+             demand_json: str, write: bool, as_json: bool) -> int:
+    """Evidence Gap Engine v2: decision coverage KPI + shopping list."""
+    if problems:
+        return _print_config_errors(problems)
+    import json as _json
+
+    from compass_agent.db import ensure_collector_db
+    from compass_agent.evidence_gap import run_gap_engine, write_report
+
+    collector_db = ensure_collector_db(path=settings.candidate_db, allow_download=settings.auto_download_db)
+    if not collector_db:
+        print("No collector DB available (AGENT_CANDIDATE_DB).")
+        return 1
+
+    # Bind a session directly to the collector DB (independent of import-time
+    # DATABASE_URL), adding the canonical columns if the snapshot predates them.
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine(f"sqlite:///{collector_db}")
+    from compass_collector.database import Base
+
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        existing = {c["name"] for c in inspect(engine).get_columns("intervention_records")}
+        for col in ("intervention_vendors_normalized", "intervention_software_normalized"):
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE intervention_records ADD COLUMN {col} JSON"))
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    demand_override = {}
+    if demand_json:
+        with open(demand_json) as fh:
+            demand_override = _json.load(fh)
+
+    try:
+        report = run_gap_engine(session=session, top_n=top, min_impact=min_impact,
+                                demand_override=demand_override)
+    finally:
+        session.close()
+
+    if write:
+        paths = write_report(report)
+        print(f"Report: {paths['report']}")
+        print(f"Shopping list: {paths['shopping_list']}")
+
+    if as_json:
+        print(_json.dumps(report.to_dict(), indent=2))
+        return 0
+
+    print(f"Evidence Gap Engine {report.engine_version} — {report.generated_at}")
+    print(f"records={report.total_records}  categories={report.categories}")
+    print("\nDecision Coverage by business function (demand-weighted % good+):")
+    for fn, cov in report.decision_coverage_by_function.items():
+        print(f"  {fn:<24s} {cov['coverage_pct']:5.1f}%   ({cov['good_plus']}/{cov['categories']} categories good+)")
+    print("\nDimension coverage (canonical fields):")
+    for dim, c in report.dimension_coverage.items():
+        print(f"  {dim:<22s} {c['pct']:5.1f}%  ({c['n']})")
+    print("\nShopping list (top by expected impact):")
+    for n in report.shopping_list:
+        d = n.diversity or {}
+        print(f"  {n.expected_impact:.2f}  {n.workflow:<28s} {n.business_function:<18s} "
+              f"cov={n.decision_coverage:<10s} recs={n.total_records} gold={n.gold} dg={n.decision_grade} "
+              f"vendors={d.get('vendors', 0)} need={n.estimated_records_needed}")
+        if n.vendor_diversity_target:
+            print(f"      diversity: {n.vendor_diversity_target}")
+        if n.search_terms:
+            print(f"      hunt: {n.search_terms[0]}")
     return 0
 
 
@@ -780,6 +859,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_metrics(settings, problems)
     if args.command == "campaign":
         return cmd_campaign(settings, problems, args.action, args.sources)
+    if args.command == "gaps":
+        return cmd_gaps(settings, problems, args.top, args.min_impact,
+                        args.demand_json, args.write, args.as_json)
     if args.command == "libraries":
         return cmd_libraries(settings, problems, args.action, args.library, args.pages)
     if args.command == "roi-search":
