@@ -67,7 +67,7 @@ def _candidate(rec: Any) -> bool:
     wn = getattr(rec, "workflow_normalized", None) or {}
     if not isinstance(wn, dict) or not wn.get("value"):
         return True
-    if wn.get("source") in ("llm_recovery", UNMAPPED_SOURCE):
+    if wn.get("source") in ("llm_recovery", UNMAPPED_SOURCE, NO_SOURCE_SOURCE):
         return False
     try:
         return float(wn.get("confidence", 0)) < MIN_KNOWN_CONFIDENCE
