@@ -469,12 +469,25 @@ def _timeframe_fields(value, text: str) -> dict:
         try:
             num = float(value.get("value"))
         except (TypeError, ValueError):
-            return {}
-        unit = str(value.get("unit") or "")[:40]
-        return {
-            "intervention_measurement_period_value": num,
-            "intervention_measurement_period_unit": unit or "months",
-        }
+            num = None
+        provided_unit = str(value.get("unit") or "").strip() or ""
+        if num is not None:
+            unit = provided_unit or "months"
+            return {
+                "intervention_measurement_period_value": num,
+                "intervention_measurement_period_unit": unit[:40],
+            }
+        # Non-numeric value (e.g. "within weeks", "late 2024"). Honour the
+        # period's presence in the source without fabricating a precise number:
+        # use the model-provided unit (or one parsed from text), value = 1.
+        raw = str(value.get("value") or "").strip()
+        unit = provided_unit if _unit_from_text(provided_unit) else _unit_from_text(raw)
+        if unit:
+            return {
+                "intervention_measurement_period_value": 1,
+                "intervention_measurement_period_unit": unit[:40],
+            }
+        return {}
     if isinstance(value, (int, float)):
         return {
             "intervention_measurement_period_value": value,
@@ -484,26 +497,26 @@ def _timeframe_fields(value, text: str) -> dict:
         s = value.strip()
         num = _first_number(s)
         if num is not None:
-            unit = "months"
-            lower = s.lower()
-            for u in ("years", "year", "quarters", "quarter", "months", "month",
-                      "weeks", "week", "days", "day"):
-                if u in lower:
-                    unit = u.rstrip("s") + ("s" if u.endswith("s") else "")
-                    if u in ("year", "years"):
-                        unit = "years"
-                    elif u in ("month", "months"):
-                        unit = "months"
-                    elif u in ("week", "weeks"):
-                        unit = "weeks"
-                    elif u in ("day", "days"):
-                        unit = "days"
-                    break
             return {
                 "intervention_measurement_period_value": num,
+                "intervention_measurement_period_unit": _unit_from_text(s) or "months",
+            }
+        unit = _unit_from_text(s)
+        if unit:
+            return {
+                "intervention_measurement_period_value": 1,
                 "intervention_measurement_period_unit": unit,
             }
     return {}
+
+
+def _unit_from_text(value: str) -> str:
+    lower = (value or "").lower()
+    for u in ("years", "year", "quarters", "quarter", "months", "month",
+              "weeks", "week", "days", "day"):
+        if u in lower:
+            return u[:-1] if u in ("years", "months", "weeks", "days") else u
+    return ""
 
 
 def _sample_fields(value, text: str) -> dict:

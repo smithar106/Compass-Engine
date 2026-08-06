@@ -175,6 +175,29 @@ class TestPromotionFields(unittest.TestCase):
         self.assertEqual(metrics[0]["metric_name"], "resolve_time")
         self.assertEqual(metrics[0]["percentage_change"], -40)
 
+    def test_descriptive_timeframe_and_sample_recovered(self):
+        """A non-numeric measurement_period and a descriptive sample_size from
+        the LLM still map to engine fields (honours presence without inventing)."""
+        from compass_agent.promote import Promotion
+
+        r = with_metric(rec(result_status="completed"), pct=-10)
+        promo = Promotion(
+            record_id=r["id"], organization_name="Acme Corp", intervention_title="x",
+            current_score=5, target_score=8, gap=3,
+            missing=["has_timeframe", "has_sample_size"],
+            fillable_missing=["has_timeframe", "has_sample_size"],
+            non_fillable_missing=[],
+        )
+        extraction = {
+            "measurement_period": {"value": "within weeks", "unit": "weeks"},
+            "sample_size": "305,761 total contacts deflected across email and chat",
+        }
+        fields, metrics = promotion_fields(r, promo, extraction)
+        self.assertEqual(fields.get("intervention_measurement_period_unit"), "weeks")
+        self.assertGreaterEqual(float(fields.get("intervention_measurement_period_value")), 1)
+        self.assertEqual(fields.get("sample_size"), 305761)
+        self.assertEqual(metrics, [])
+
 
 class TestEvidenceGraph(unittest.TestCase):
     def test_normalize_id(self):
