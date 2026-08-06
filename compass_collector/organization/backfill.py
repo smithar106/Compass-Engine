@@ -340,7 +340,13 @@ def run_vendor_technology_backfill(session, dry_run: bool = True, limit: Optiona
 
 
 def run_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> dict:
-    """Normalize all intervention records. Writes when ``dry_run=False``."""
+    """Normalize all intervention records. Writes when ``dry_run=False``.
+
+    Scale-hardened: idempotent (records already normalized at the current
+    ``NORMALIZATION_VERSION`` are skipped), commits in batches to keep
+    transactions short, and reports extraction gains (geography/employee count
+    recovered from free text) plus the unmapped industry long tail.
+    """
     from compass_collector.models.intervention import InterventionRecord
 
     query = session.query(InterventionRecord)
@@ -351,7 +357,14 @@ def run_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> 
     coverage: dict[str, Counter] = {}
     unmapped_industries: Counter = Counter()
     written = 0
-    for rec in records:
+    skipped = 0
+    batch_size = 200
+    for i, rec in enumerate(records):
+        existing = rec.organization_normalized or {}
+        meta = existing.get("_meta") or {}
+        if meta.get("normalization_version") == NORMALIZATION_VERSION:
+            skipped += 1
+            continue
         payload = normalize_record(rec)
         for field in ("canonical_name", "primary_industry", "employee_count", "geography", "operational_function", "regulatory_context"):
             coverage.setdefault(field, Counter())
@@ -366,6 +379,8 @@ def run_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> 
         if not dry_run:
             rec.organization_normalized = payload
             written += 1
+            if written % batch_size == 0:
+                session.commit()  # keep transactions short on large graphs
 
     if not dry_run:
         session.commit()
@@ -374,6 +389,7 @@ def run_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> 
         "dry_run": dry_run,
         "total_records": len(records),
         "written": written,
+        "skipped_already_normalized": skipped,
         "field_coverage": {
             field: {
                 "present": c["present"],
