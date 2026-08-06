@@ -100,6 +100,63 @@ class TestEnrichmentEndpoint(unittest.TestCase):
             self._call(fields={"not_a_real_column": "x"})
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_metrics_upsert_idempotent(self):
+        """Promotion upserts MetricRecords keyed to the promote source and is
+        idempotent across repeated apply runs."""
+        from compass_collector.api.enrichment_router import EnrichmentRequest, ingest_enrichment
+        from compass_collector.models.intervention import MetricRecord
+
+        session = _TestSession()
+        session.add(InterventionRecord(id="rec-m", organization_name="Beta Industries", review_status="pending"))
+        session.commit()
+        session.close()
+
+        metrics = [{"metric_name": "handle_time", "category": "efficiency", "percentage_change": -30}]
+        for _ in range(2):
+            req = EnrichmentRequest(record_id="rec-m", source="compass_agent:promote", metrics=metrics)
+            with patch("compass_collector.api.enrichment_router.get_session", side_effect=lambda: _TestSession()):
+                ingest_enrichment(req, FakeRequest({"X-Compass-Agent-Key": "sync-secret"}))
+        session = _TestSession()
+        rows = session.query(MetricRecord).filter(MetricRecord.intervention_id == "rec-m").all()
+        session.close()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].percentage_change, -30)
+        self.assertEqual(rows[0].source_id, "compass_agent:promote")
+
+    def test_reclassify_promotes_to_gold(self):
+        """Promotion fills the gold-card gaps and the engine reclassifies the
+        stored evidence_level from the resulting state."""
+        from compass_collector.api.enrichment_router import EnrichmentRequest, ingest_enrichment
+        from compass_collector.models.intervention import InterventionRecord
+
+        session = _TestSession()
+        session.add(InterventionRecord(id="rec-g", organization_name="Gamma Electric", review_status="pending"))
+        session.commit()
+        session.close()
+
+        req = EnrichmentRequest(
+            record_id="rec-g",
+            source="compass_agent:promote",
+            fields={
+                "has_baseline": True,
+                "problem_baseline_description": "Manual process, 40 tickets/day",
+                "intervention_measurement_period_value": 6,
+                "intervention_measurement_period_unit": "months",
+                "sample_size": 120,
+                "independently_verified": True,
+            },
+            metrics=[{"metric_name": "cost", "category": "finance", "percentage_change": -40}],
+            reclassify=True,
+        )
+        with patch("compass_collector.api.enrichment_router.get_session", side_effect=lambda: _TestSession()):
+            result = ingest_enrichment(req, FakeRequest({"X-Compass-Agent-Key": "sync-secret"}))
+        self.assertEqual(result["evidence_level"], "gold")
+
+        session = _TestSession()
+        rec = session.query(InterventionRecord).filter_by(id="rec-g").first()
+        session.close()
+        self.assertEqual(rec.evidence_level, "gold")
+
     def test_missing_record_404(self):
         from fastapi import HTTPException
 

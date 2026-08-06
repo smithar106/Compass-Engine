@@ -79,8 +79,8 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
         raise HTTPException(status_code=401, detail="unauthorized")
     if not req.record_id:
         raise HTTPException(status_code=400, detail="record_id required")
-    if not req.fields:
-        raise HTTPException(status_code=400, detail="fields required")
+    if not req.fields and not req.metrics:
+        raise HTTPException(status_code=400, detail="fields or metrics required")
 
     db = get_session()
     try:
@@ -105,9 +105,10 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
         if req.metrics:
             from compass_collector.models.intervention import MetricRecord
 
+            metric_source = req.source if str(req.source).endswith(":promote") else f"{req.source}:promote"
             db.query(MetricRecord).filter(
                 MetricRecord.intervention_id == rec.id,
-                MetricRecord.source_id == f"{req.source}:promote",
+                MetricRecord.source_id == metric_source,
             ).delete(synchronize_session=False)
             for m in req.metrics:
                 if not isinstance(m, dict):
@@ -120,7 +121,7 @@ def ingest_enrichment(req: EnrichmentRequest, request: Request):
                     MetricRecord(
                         id=str(uuid.uuid4()),
                         intervention_id=rec.id,
-                        source_id=f"{req.source}:promote",
+                        source_id=metric_source,
                         metric_name=str(m.get("metric_name") or m.get("category") or "metric")[:120],
                         metric_category=str(m.get("category") or "outcome")[:60],
                         percentage_change=pct,
@@ -224,6 +225,7 @@ def ingest_evidence(req: IngestRequest, request: Request):
                 "intervention_category": req.intervention_category,
                 "evidence_tier": tier,
                 "source_generation": "agent_discovered",
+                **({"source_url": req.url} if req.url.startswith(("http://", "https://")) else {}),
             },
             intervention_vendors=impl.get("intervention_vendors") or [],
             implementation_partner=impl.get("implementation_partner") or [],

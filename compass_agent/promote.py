@@ -693,10 +693,16 @@ def promotion_system_prompt(promo: Promotion) -> str:
 
 
 def _fetch_source(record: dict) -> str:
-    """Fetch the source document text via the shared HttpFetcher."""
+    """Fetch the source document text via the shared HttpFetcher.
+
+    Falls back to the persisted ``intervention_components.source_url`` when
+    ``source_id`` is not a URL (discovered records store the URL there)."""
     from compass_agent.discovery import HttpFetcher
 
     url = record.get("source_id") or ""
+    if not url.startswith(("http://", "https://")):
+        comps = record.get("intervention_components") or {}
+        url = comps.get("source_url") if isinstance(comps, dict) else ""
     if not url.startswith(("http://", "https://")):
         return ""
     try:
