@@ -17,6 +17,7 @@ WORKFLOWS = {
         "campaign_management", "content_generation", "seo_optimization",
         "social_media", "email_marketing", "analytics_reporting",
         "lead_scoring", "personalization", "customer_journey",
+        "creative_production",
     ],
     "customer_support": [
         "ticketing", "chat", "call_routing", "knowledge_base",
@@ -27,7 +28,7 @@ WORKFLOWS = {
         "invoice_processing", "accounts_payable", "accounts_receivable",
         "financial_reporting", "budgeting", "forecasting",
         "audit", "expense_management", "revenue_recognition",
-        "credit_scoring",
+        "credit_scoring", "financial_consolidation",
     ],
     "accounting": [
         "general_ledger", "reconciliation", "tax_preparation",
@@ -43,7 +44,7 @@ WORKFLOWS = {
         "infrastructure_monitoring", "incident_response",
         "change_management", "asset_management", "backup_recovery",
         "cloud_migration", "network_management", "security_operations",
-        "application_modernization",
+        "application_modernization", "ai_model_development", "ai_inference_serving",
     ],
     "engineering": [
         "code_review", "ci_cd", "deployment", "testing",
@@ -55,6 +56,8 @@ WORKFLOWS = {
         "logistics", "scheduling", "quality_control",
         "facilities_management", "procurement",
         "clinical_documentation", "email_processing", "document_management",
+        "field_service", "data_pipeline", "data_curation",
+        "team_collaboration", "erp_implementation", "scm_implementation",
     ],
     "supply_chain": [
         "demand_forecasting", "inventory_optimization", "supplier_management",
