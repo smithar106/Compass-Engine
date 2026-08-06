@@ -283,4 +283,26 @@ planner consumption order (shopping list before DDG).
   ("invoic" matches invoice/invoicing/invoiced; "invoice" does not match
   "invoicing").
 
+**LLM recovery run on production (Aug 6, DeepSeek, ~$0.85 total):**
+
+- **Workflow recovery**: 211 records LLM-recovered onto canonical slugs
+  (source=llm_recovery); the recovery also surfaced ~19 AI-era/enterprise
+  workflows missing from the comparability taxonomy (ai_model_development,
+  ai_inference_serving, erp_implementation, financial_consolidation,
+  creative_production, field_service, data_curation, ...) — now canonical.
+  Idempotency fixes: unmapped/no-source records are marked processed so
+  repeated passes never re-burn budget (3 rounds of fixes).
+- **Org attribute recovery** (geography + employee count): writes BOTH the
+  organization_normalized dict AND the dedicated columns the coverage
+  endpoint reads (organization_geography / organization_employee_count /
+  organization_employee_band). Production: geography 3.2% → **9.6%** (441),
+  employee count 0.8% → **2.8%** (129).
+- **Data reality found**: vendor case studies rarely state HQ/headcount — the
+  LLM correctly returns null. Geography/employee have a corpus ceiling
+  (~10%/3%) without richer sources; the gap engine already treats them as
+  preferred attributes + data_limited flags, not hard filters.
+- **Operational lesson**: container churn can lose uncheckpointed SQLite WAL
+  frames — write recovery in small committed passes, and don't rely on
+  background jobs that span container replacements.
+
 
