@@ -169,7 +169,7 @@ class TestWorkerEndToEnd(unittest.TestCase):
 
         fake = _FakeLLM([{"workflow": "Zz exotic quantum melding"}, {"workflow": "Zz exotic quantum melding"}])
         report = run_workflow_recovery(self.db_path, api_key="test", llm=fake, max_applications=5, limit=10)
-        self.assertEqual(report["unmapped"], 1)
+        self.assertEqual(report["unmapped"], 2)
         # Second run: no candidates remain (both marked processed).
         report2 = run_workflow_recovery(self.db_path, api_key="test", llm=fake, max_applications=5, limit=10)
         self.assertEqual(report2["candidates"], 0)
