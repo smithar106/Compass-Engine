@@ -33,7 +33,41 @@ class TestEstimateImpact(unittest.TestCase):
         savings, hours = _estimate_impact(comparables, "Workflow_Automation", req)
         self.assertEqual(savings.status, "insufficient_input")
         self.assertEqual(hours.status, "insufficient_input")
-        self.assertIn("missing_inputs", savings.model_dump())
+        self.assertGreater(len(savings.missing_inputs), 0)
+
+    def test_estimated_when_volume_handling_and_cost_provided(self):
+        req = InvestigationRequest(
+            people_involved="10",
+            workflow_frequency="Daily",
+            annual_workflow_volume="120000",
+            current_handling_time="0.5",
+            loaded_labor_cost="75",
+        )
+        comparables = [
+            _make_comparable("OrgA", "gold", [{"metric": "Cycle time", "value": "30%"}]),
+            _make_comparable("OrgB", "silver", [{"metric": "Processing cost", "value": "50%"}]),
+        ]
+        savings, hours = _estimate_impact(comparables, "Workflow_Automation", req)
+        self.assertEqual(savings.status, "estimated")
+        self.assertEqual(hours.status, "estimated")
+        self.assertEqual(savings.currency, "USD")
+        self.assertGreater(savings.expected, 0)
+        # 120,000 items × 0.5h = 60,000 hours; × 40% median improvement = 24,000 h; × $75 = $1.8M
+        self.assertEqual(hours.expected, 24000)
+        self.assertEqual(savings.expected, 1800000)
+        self.assertLessEqual(savings.low, savings.expected)
+        self.assertGreaterEqual(savings.high, savings.expected)
+
+    def test_estimated_requires_all_three_inputs(self):
+        req = InvestigationRequest(
+            annual_workflow_volume="120000",
+            current_handling_time="0.5",
+            loaded_labor_cost="",
+        )
+        comparables = [_make_comparable("OrgA", "gold", [{"metric": "Cycle time", "value": "30%"}])]
+        savings, _ = _estimate_impact(comparables, "Workflow_Automation", req)
+        self.assertEqual(savings.status, "insufficient_input")
+        self.assertIn("loaded labor cost", savings.missing_inputs)
 
     def test_missing_inputs_listed(self):
         req = InvestigationRequest(people_involved="10", workflow_frequency="Daily")

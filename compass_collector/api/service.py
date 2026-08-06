@@ -344,11 +344,52 @@ def _pluralize(n: int, word: str) -> str:
 # returns insufficient_input and describes what is missing.
 # ---------------------------------------------------------------------------
 
+def _parse_positive_float(value: Optional[str]) -> Optional[float]:
+    """Parse a numeric string to a positive float; None when missing/invalid."""
+    if not value:
+        return None
+    try:
+        v = float(str(value).strip().replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _comparable_improvement_range(comparables: list[ComparableEvidence]) -> Optional[tuple[float, float, float]]:
+    """Low / median / high improvement from comparable outcome percentages."""
+    values: list[float] = []
+    for c in comparables:
+        for m in c.normalized_metrics:
+            raw = m.get("metric", "")
+            val = m.get("value", "")
+            key = _normalize_to_key(raw)
+            if not key or not isinstance(val, str) or not val.endswith("%"):
+                continue
+            if _is_company_wide_metric(raw):
+                continue
+            try:
+                pct = float(val.rstrip("%")) / 100.0
+            except ValueError:
+                continue
+            if 0 < pct <= 1.5:  # sane improvement bounds
+                values.append(pct)
+    if not values:
+        return None
+    values.sort()
+    n = len(values)
+    median = values[n // 2] if n % 2 == 1 else (values[n // 2 - 1] + values[n // 2]) / 2
+    return (values[0], median, values[-1])
+
+
 def _estimate_impact(
     comparables: list[ComparableEvidence],
     category_id: str,
     req: Optional[InvestigationRequest],
 ) -> tuple[ImpactEstimate, ImpactEstimate]:
+    volume = _parse_positive_float(getattr(req, "annual_workflow_volume", "") if req else "")
+    handling = _parse_positive_float(getattr(req, "current_handling_time", "") if req else "")
+    labor_cost = _parse_positive_float(getattr(req, "loaded_labor_cost", "") if req else "")
+
     missing_savings = []
     missing_hours = []
 
@@ -356,12 +397,44 @@ def _estimate_impact(
         missing_hours.append("number of people involved")
     if not req or not req.workflow_frequency:
         missing_hours.append("workflow frequency or volume")
+    if not volume:
+        missing_savings.append("annual workflow volume")
+    if not handling:
+        missing_savings.append("current handling time")
+    if not labor_cost:
+        missing_savings.append("loaded labor cost")
 
-    missing_savings.extend(missing_hours)
-    if not req or not req.budget_range:
-        missing_savings.append("labor cost or budget data")
-    missing_savings.append("annual workflow volume")
-    missing_savings.append("current handling time")
+    # Organization-specific dollar estimate when the assessment collects the
+    # inputs and comparable evidence provides an improvement factor.
+    improvement = _comparable_improvement_range(comparables)
+    if volume and handling and labor_cost and improvement:
+        lo, med, hi = improvement
+        annual_hours = volume * handling
+        hours = ImpactEstimate(
+            status="estimated",
+            low=round(annual_hours * lo),
+            expected=round(annual_hours * med),
+            high=round(annual_hours * hi),
+            currency="hours",
+            basis=(
+                f"Annual workflow volume {volume:,.0f} \u00d7 {handling:.2f} hours per item "
+                f"\u00d7 comparable improvement of {med:.0%}."
+            ),
+            what_can_be_reported="Annual hours returned, estimated from your workflow volume, handling time, and comparable improvements.",
+        )
+        savings = ImpactEstimate(
+            status="estimated",
+            low=round(annual_hours * lo * labor_cost),
+            expected=round(annual_hours * med * labor_cost),
+            high=round(annual_hours * hi * labor_cost),
+            currency="USD",
+            basis=(
+                f"Annual hours returned \u00d7 fully loaded cost of ${labor_cost:,.2f} per hour. "
+                f"Improvement range from {len([c for c in comparables])} comparable implementations."
+            ),
+            what_can_be_reported="Annual savings, estimated from your workflow volume, handling time, loaded labor cost, and comparable improvements.",
+        )
+        return savings, hours
 
     savings = ImpactEstimate(
         status="insufficient_input",

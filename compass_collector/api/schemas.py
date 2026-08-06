@@ -22,6 +22,10 @@ class InvestigationRequest(BaseModel):
     geography: str = ""
     constraints: list[str] = []
     implementation_capacity: str = ""
+    # Organization-specific impact inputs (collected by the assessment).
+    annual_workflow_volume: str = ""
+    current_handling_time: str = ""
+    loaded_labor_cost: str = ""
 
 
 class ScoreComponent(BaseModel):
