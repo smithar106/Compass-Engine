@@ -42,6 +42,10 @@ class InterventionRecord(Base):
     # JSON: {raw_value: {raw, value, label, source, method, confidence, version}}
     intervention_vendors_normalized = Column(JSON, default=dict)
     intervention_software_normalized = Column(JSON, default=dict)
+    # Canonical workflow (Phase 4): {raw, value, function, method, confidence,
+    # version} — value is a canonical ALL_WORKFLOWS slug; function is the
+    # business function the slug belongs to.
+    workflow_normalized = Column(JSON, default=dict)
     intervention_teams_involved = Column(JSON, default=list)
     intervention_human_review_required = Column(Boolean, nullable=True)
     intervention_pilot_used = Column(Boolean, nullable=True)

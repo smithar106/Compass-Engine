@@ -64,11 +64,29 @@ def _slug(text: str) -> str:
 
 
 def _record_workflow(rec: Any) -> str:
+    # Canonical workflow (Phase 4 backfill) wins when present.
+    wn = getattr(rec, "workflow_normalized", None) or {}
+    if isinstance(wn, dict) and wn.get("value"):
+        return str(wn["value"])
+    # Otherwise normalize the stored free-text workflow, or infer from text.
+    from compass_collector.organization.workflow_taxonomy import infer_workflow, normalize_workflow
+
     comps = getattr(rec, "intervention_components", None) or {}
     if isinstance(comps, dict):
         wf = comps.get("workflow") or ""
         if wf:
-            return str(wf).strip()
+            nv = normalize_workflow(str(wf).strip())
+            if nv.value:
+                return nv.value
+    text = " ".join(
+        str(x).strip() for x in
+        (getattr(rec, "intervention_title", "") or "", getattr(rec, "problem_statement", "") or "")
+        if x
+    )
+    if text:
+        nv = infer_workflow(text)
+        if nv.value:
+            return nv.value
     bf = getattr(rec, "problem_business_function", None) or []
     if bf:
         return str(bf[0]).strip()
@@ -76,6 +94,10 @@ def _record_workflow(rec: Any) -> str:
 
 
 def _record_function(rec: Any) -> str:
+    # Canonical workflow implies its business function.
+    wn = getattr(rec, "workflow_normalized", None) or {}
+    if isinstance(wn, dict) and wn.get("function"):
+        return str(wn["function"])
     bf = getattr(rec, "problem_business_function", None) or []
     if not bf:
         return "operations"
@@ -545,8 +567,8 @@ def run_gap_engine(
     n = len(records)
     with_workflow = sum(
         1 for r in records
-        if isinstance(getattr(r, "intervention_components", None) or {}, dict)
-        and (getattr(r, "intervention_components", {}) or {}).get("workflow")
+        if isinstance(getattr(r, "workflow_normalized", None), dict)
+        and (r.workflow_normalized or {}).get("confidence", 0) >= 0.5
     )
     dims = {
         "canonical_industry": sum(1 for r in records if (r.organization_normalized or {}).get("primary_industry")),

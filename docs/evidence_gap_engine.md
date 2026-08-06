@@ -245,7 +245,8 @@ planner consumption order (shopping list before DDG).
 | Phase | Status | Notes |
 |---|---|---|
 | 0 — Canonical vendors/technologies + hardened org backfill | **done** (branch `feat/canonical-vendor-technology`) | vendors 316→58, tech 280→72; canonical industry 30.3%→97.6% on snapshot |
-| 2 — Gap model v2 | **done** (`compass_agent/evidence_gap.py`, CLI `gaps`) | multi-dimensional needs, diversity/concentration flags, measured-demand override, sparse-dimension preferences, composed search terms, library priority; 12 tests |
+| 0b — Workflow canonicalization + inference | **done** (`organization/workflow_taxonomy.py`, `scripts/backfill_workflow.py`) | free-text workflows → canonical `ALL_WORKFLOWS` slugs; records without a stored workflow get one inferred from title/problem text (earliest-keyword-wins). Snapshot: 141 stored → 719 mapped (55.1%), 68 canonical slugs |
+| 2 — Gap model v2 | **done** (`compass_agent/evidence_gap.py`, CLI `gaps`) | multi-dimensional needs, diversity/concentration flags, measured-demand override, sparse-dimension preferences, composed search terms, library priority; 25 tests |
 | 3 — Nightly report + persistence | **partial** | `--write` → `data/gaps/{evidence_gap_report,shopping_list}.json`; `GET /api/evidence/gaps` endpoint not yet wired (needs auth pattern from coverage_router) |
 | 4 — Discovery inversion | not started | planner consumes shopping list first |
 | 5 — Demand telemetry | not started | analyze/outcome query logging |
@@ -266,4 +267,19 @@ planner consumption order (shopping list before DDG).
    slash values reduce to their first element; alias table extended).
 3. **Sparse dimensions degrade gracefully** — geography/employee-band gaps are
    expressed as *preferences* + `data_limited_fields` flags, not hard filters.
+
+**Workflow backfill results (same snapshot, after Phase 0b):**
+
+- 141 stored free-text workflows → 719 records mapped (55.1%) onto 68 canonical
+  slugs; 718 records got a workflow inferred from title/problem text.
+- **The decision-coverage KPI became meaningful overnight**: finance 53%, IT
+  57%, legal 43%, supply_chain 50%, customer_support 33%, engineering 32% —
+  vs 0–1% before. Categories: 158 → 119.
+- Remaining unmapped (~590 records) are mostly generic vendor-blog titles with
+  no workflow signal in title/problem text — these need body-level extraction
+  (LLM enrichment) rather than deterministic inference.
+- Catch: keyword matching must use word stems, not full words
+  ("invoic" matches invoice/invoicing/invoiced; "invoice" does not match
+  "invoicing").
+
 

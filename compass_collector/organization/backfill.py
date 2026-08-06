@@ -339,6 +339,114 @@ def run_vendor_technology_backfill(session, dry_run: bool = True, limit: Optiona
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — workflow canonicalization + inference
+# ---------------------------------------------------------------------------
+
+
+def normalize_workflow_record(record: Any) -> dict:
+    """Compute the canonical workflow payload for one record.
+
+    Uses the stored free-text workflow when present; otherwise infers from
+    the intervention title / problem statement. Raw is preserved; value is a
+    canonical ALL_WORKFLOWS slug with its business function attached.
+    """
+    from compass_collector.organization.workflow_taxonomy import (
+        WORKFLOW_NORMALIZATION_VERSION,
+        infer_workflow,
+        normalize_workflow,
+        workflow_function,
+    )
+
+    comps = record.intervention_components or {}
+    raw_wf = ""
+    if isinstance(comps, dict):
+        raw_wf = str(comps.get("workflow") or "").strip()
+
+    if raw_wf:
+        nv = normalize_workflow(raw_wf)
+    else:
+        text = " ".join(
+            str(x).strip()
+            for x in (record.intervention_title or "", record.problem_statement or "")
+            if x
+        )
+        nv = infer_workflow(text)
+
+    if not nv.value:
+        return {}
+
+    entry = {
+        "raw": nv.raw or "",
+        "value": nv.value,
+        "source": nv.source,
+        "method": nv.method,
+        "confidence": round(nv.confidence, 3),
+        "version": nv.version,
+    }
+    fn = workflow_function(nv.value)
+    if fn:
+        entry["function"] = fn
+    return entry
+
+
+def run_workflow_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> dict:
+    """Canonicalize (and where missing, infer) workflows for all records.
+
+    Writes ``intervention_records.workflow_normalized`` when ``dry_run=False``.
+    Reports coverage before/after, canonical workflow distribution, inference
+    quality, and the unmapped long tail.
+    """
+    from compass_collector.models.intervention import InterventionRecord
+
+    query = session.query(InterventionRecord)
+    if limit:
+        query = query.limit(limit)
+    records = query.all()
+
+    stored_raw = 0          # had a workflow component before
+    canonical = Counter()
+    inferred = 0
+    unmapped = Counter()
+    written = 0
+    for rec in records:
+        comps = rec.intervention_components or {}
+        had_raw = isinstance(comps, dict) and bool(comps.get("workflow"))
+        if had_raw:
+            stored_raw += 1
+
+        payload = normalize_workflow_record(rec)
+        if not payload:
+            continue
+        if payload["confidence"] >= 0.5:
+            canonical[payload["value"]] += 1
+            if payload["method"] == "inferred":
+                inferred += 1
+        else:
+            unmapped[payload["value"]] += 1
+
+        if not dry_run:
+            rec.workflow_normalized = payload
+            written += 1
+
+    if not dry_run:
+        session.commit()
+
+    return {
+        "dry_run": dry_run,
+        "total_records": len(records),
+        "written": written,
+        "stored_raw_workflows": stored_raw,
+        "inferred_from_text": inferred,
+        "canonical_distinct": len(canonical),
+        "mapped": sum(canonical.values()),
+        "mapped_pct": round(100 * sum(canonical.values()) / max(len(records), 1), 1),
+        "top_workflows": canonical.most_common(25),
+        "unmapped_count": len(unmapped),
+        "unmapped_top": unmapped.most_common(30),
+    }
+
+
 def run_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> dict:
     """Normalize all intervention records. Writes when ``dry_run=False``.
 

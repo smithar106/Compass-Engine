@@ -188,9 +188,9 @@ class TestEngineEndToEnd(unittest.TestCase):
         self.assertEqual(report.total_records, 17)
         self.assertEqual(report.categories, 2)
         # Weak category outranks healthy one by expected impact
-        self.assertEqual(report.needs[0].workflow, "contract review")
+        self.assertEqual(report.needs[0].workflow, "contract_review")  # canonical slug
         self.assertEqual(report.needs[0].decision_coverage, "absent")  # 0 high-quality
-        self.assertEqual(report.needs[1].workflow, "invoice processing")
+        self.assertEqual(report.needs[1].workflow, "invoice_processing")
         self.assertEqual(report.needs[1].decision_coverage, "good")  # 15 HQ < 25 excellent
 
     def test_kpi_per_function(self):
