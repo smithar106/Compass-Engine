@@ -382,6 +382,40 @@ class Daemon:
                 except Exception as exc:
                     self.logger.error("Cycle %d: evidence-ops failed: %s", cycle, exc)
 
+        # Gold Factory: promote the closest Silver→Gold implementations.
+        if self.settings.gold_factory_enabled and self.budget.can_work():
+            try:
+                from compass_agent.promote import run_gold_factory
+
+                gf = run_gold_factory(
+                    self.settings,
+                    self.budget,
+                    max_applications=self.settings.gold_factory_max_applications,
+                    concurrency=max(self.settings.llm_concurrency, 1),
+                )
+                if gf.get("skipped"):
+                    self.logger.info(
+                        "Cycle %d: gold-factory skipped (%s).", cycle, gf["skipped"]
+                    )
+                else:
+                    self.logger.info(
+                        "Cycle %d: gold-factory candidates=%d applied=%d promoted_to_gold=%d "
+                        "failed=%d promotable=%d legacy_blocked=%d (daily $%.2f / %.2f).",
+                        cycle,
+                        gf.get("candidates", 0),
+                        gf.get("applied", 0),
+                        gf.get("promoted_to_gold", 0),
+                        gf.get("failed", 0),
+                        (gf.get("readiness") or {}).get("promotable", {}).get("count", 0),
+                        (gf.get("readiness") or {}).get("legacy_blocked", {}).get("count", 0),
+                        self.budget.daily_spent,
+                        self.settings.max_daily_llm_usd,
+                    )
+                    for f in (gf.get("failures") or [])[:3]:
+                        self.logger.warning("Cycle %d: gold-factory failed %s (%s)", cycle, f.get("record_id"), f.get("reason"))
+            except Exception as exc:
+                self.logger.error("Cycle %d: gold-factory failed: %s", cycle, exc)
+
         self.budget.check_alerts(logger=self.logger, notify=self.notify)
 
         if processed == 0 and self.enrichment is None and self.discovery is None:

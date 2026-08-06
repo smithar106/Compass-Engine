@@ -51,6 +51,8 @@ class Settings:
     sync_token: str = ""
     notify_webhook: str = ""
     log_level: str = "INFO"
+    gold_factory_enabled: bool = False
+    gold_factory_max_applications: int = 3
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> "tuple[Settings, list[str]]":
@@ -102,6 +104,8 @@ class Settings:
             sync_token=str(env.get("AGENT_SYNC_TOKEN") or "").strip(),
             notify_webhook=str(env.get("AGENT_NOTIFY_WEBHOOK") or "").strip(),
             log_level=str(env.get("AGENT_LOG_LEVEL") or "INFO").strip().upper(),
+            gold_factory_enabled=_parse_bool(env.get("AGENT_GOLD_FACTORY_ENABLED"), False),
+            gold_factory_max_applications=_int("AGENT_GOLD_FACTORY_MAX_APPLICATIONS", 3),
         )
         problems.extend(settings.validate())
         return settings, problems

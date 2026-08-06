@@ -849,6 +849,70 @@ def _post_enrichment(settings, record_id: str, fields: dict, metrics: Optional[l
         return 0, str(exc)
 
 
+def run_gold_factory(
+    settings,
+    budget,
+    *,
+    max_applications: int = 3,
+    concurrency: int = 1,
+    limit: int = 500,
+    only_promotable: bool = True,
+) -> dict:
+    """The Gold Factory worker. Do one promotion pass over the live engine.
+
+    Loads records from the engine, plans the closest Silver→Gold promotions
+    (records that have a fetchable source so re-extraction is possible), and
+    applies up to ``max_applications`` of them. Budget-gated and idempotent —
+    re-running the same pass is a no-op because promoted records leave the
+    candidate set.
+
+    Returns a dict report suitable for the daemon log line.
+    """
+    check = (
+        not settings.provider_api_key_configured
+        or not settings.sync_token
+        or not settings.compass_api_url
+    )
+    if check:
+        return {"skipped": "no_api_key_or_token", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
+
+    if budget is None:
+        from compass_agent.daemon import BudgetTracker
+
+        budget = BudgetTracker(
+            max_daily=settings.max_daily_llm_usd,
+            max_total=settings.max_total_llm_usd,
+        )
+    if not budget.can_work():
+        return {"skipped": "budget", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
+
+    records = load_records_from_engine(settings.compass_api_url, settings.sync_token, limit=limit)
+    if not records:
+        return {"skipped": "no_records", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
+
+    if only_promotable:
+        records = [r for r in records if is_promotable(r)]
+    if not records:
+        return {"skipped": "no_promotable", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
+
+    promotions = plan_promotions(records, target="gold")
+    if not promotions:
+        return {"skipped": "no_candidates", "applied": 0, "promoted_to_gold": 0, "candidates": 0}
+
+    by_id = {r.get("id"): r for r in records}
+    result = apply_promotions(
+        promotions,
+        by_id,
+        settings,
+        budget,
+        max_applications=max_applications,
+        concurrency=concurrency,
+    )
+    result["candidates"] = len(promotions)
+    result["readiness"] = promotion_readiness(records)
+    return result
+
+
 __all__ = [
     "compute_points",
     "classify_tier",
@@ -863,4 +927,8 @@ __all__ = [
     "BronzeAudit",
     "Promotion",
     "BRONZE_REASON_LABELS",
+    "run_gold_factory",
+    "promotion_readiness",
+    "is_promotable",
+    "record_source_url",
 ]

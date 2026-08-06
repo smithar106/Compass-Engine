@@ -226,5 +226,48 @@ class TestEvidenceGraph(unittest.TestCase):
         self.assertEqual(len(g.neighbors("o:acme", EdgeKind.IN_INDUSTRY)), 1)
 
 
+class TestGoldFactory(unittest.TestCase):
+    def _settings(self):
+        from compass_agent.config import Settings
+
+        return Settings(
+            compass_api_url="https://engine.example",
+            sync_token="tok",
+            llm_provider="anthropic",
+            anthropic_api_key="k",
+            max_daily_llm_usd=25.0,
+            max_total_llm_usd=50.0,
+        )
+
+    def test_gold_factory_skips_when_no_credentials(self):
+        from compass_agent.config import Settings
+        from compass_agent.promote import run_gold_factory
+        from compass_agent.daemon import BudgetTracker
+
+        st = Settings(compass_api_url="https://engine.example", sync_token="")
+        budget = BudgetTracker(max_daily=25, max_total=50)
+        res = run_gold_factory(st, budget, max_applications=2)
+        self.assertEqual(res["skipped"], "no_api_key_or_token")
+
+    def test_gold_factory_skips_on_budget_exhaustion(self):
+        from compass_agent.promote import run_gold_factory
+        from compass_agent.daemon import BudgetTracker
+
+        budget = BudgetTracker(max_daily=25, max_total=50)
+        budget.spend(60.0)  # over total
+        res = run_gold_factory(self._settings(), budget, max_applications=2)
+        self.assertEqual(res["skipped"], "budget")
+
+    def test_gold_factory_skip_paths_without_llm(self):
+        from compass_agent.promote import run_gold_factory
+        from compass_agent.daemon import BudgetTracker
+
+        budget = BudgetTracker(max_daily=25, max_total=50)
+        # engine reachable but no records returned
+        res = run_gold_factory(self._settings(), budget, max_applications=2, limit=10)
+        self.assertIn("skipped", res)
+        self.assertEqual(res["applied"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
