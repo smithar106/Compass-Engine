@@ -429,7 +429,12 @@ def evidence_coverage():
     canonical_industry = Counter()
     subsector = Counter()
     agent_enriched = 0
+    vendor_canonical = Counter()
+    tech_canonical = Counter()
+    tech_families = Counter()
     name = emp = emp_band = geo = op_func = workflow = normalized = 0
+    vendor_norm_records = 0
+    tech_norm_records = 0
 
     for rec in records:
         if _has(rec.organization_name):
@@ -463,6 +468,23 @@ def evidence_coverage():
         ):
             agent_enriched += 1
 
+        # Canonical knowledge layer (Phase 4): vendors + technologies
+        vnorm = rec.intervention_vendors_normalized or {}
+        snorm = rec.intervention_software_normalized or {}
+        if vnorm:
+            vendor_norm_records += 1
+            for entry in vnorm.values():
+                if entry.get("confidence", 0) >= 0.7:
+                    vendor_canonical[entry.get("value", "?")] += 1
+        if snorm:
+            tech_norm_records += 1
+            for entry in snorm.values():
+                if entry.get("confidence", 0) >= 0.7:
+                    tech_canonical[entry.get("value", "?")] += 1
+                    fam = entry.get("family")
+                    if fam:
+                        tech_families[fam] += 1
+
     def pct(n: int) -> float:
         return round(100 * n / max(total, 1), 1)
 
@@ -479,8 +501,13 @@ def evidence_coverage():
             "geography": {"n": geo, "pct": pct(geo)},
             "operational_function": {"n": op_func, "pct": pct(op_func)},
             "workflow": {"n": workflow, "pct": pct(workflow)},
+            "vendor_canonical": {"n": vendor_norm_records, "pct": pct(vendor_norm_records)},
+            "technology_canonical": {"n": tech_norm_records, "pct": pct(tech_norm_records)},
         },
         "agent_enriched_records": agent_enriched,
         "canonical_industry_top": canonical_industry.most_common(20),
         "subsector_top": subsector.most_common(20),
+        "canonical_vendor_top": vendor_canonical.most_common(20),
+        "canonical_technology_top": tech_canonical.most_common(20),
+        "technology_families": tech_families.most_common(20),
     }

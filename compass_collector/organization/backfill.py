@@ -173,6 +173,172 @@ def normalize_record(record: Any) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — vendor & technology canonicalization (canonical knowledge layer)
+# ---------------------------------------------------------------------------
+
+
+def _as_list(value) -> list:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if v and str(v).strip()]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if v and str(v).strip()]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return [value.strip()]
+    return []
+
+
+def normalize_vendors_software(record: Any) -> dict:
+    """Compute the canonical vendor/technology payload for one record.
+
+    Returns ``{"vendors": {raw: {...}}, "software": {raw: {...}}}`` where each
+    entry preserves raw, canonical value, label, method, confidence, version.
+    Raw values are never overwritten — normalized values go in
+    ``intervention_vendors_normalized`` / ``intervention_software_normalized``.
+    """
+    from compass_collector.organization.vendor_taxonomy import (
+        VENDOR_NORMALIZATION_VERSION,
+        normalize_vendor,
+        normalize_technology,
+        technology_family,
+        technology_label,
+        vendor_label,
+    )
+
+    payload: dict[str, dict] = {"vendors": {}, "software": {}}
+
+    for raw in _as_list(record.intervention_vendors):
+        nv = normalize_vendor(raw)
+        entry = {
+            "raw": raw,
+            "value": nv.value,
+            "source": nv.source,
+            "method": nv.method,
+            "confidence": round(nv.confidence, 3),
+            "version": nv.version,
+        }
+        label = vendor_label(nv.value)
+        if label:
+            entry["label"] = label
+        payload["vendors"][raw] = entry
+
+    for raw in _as_list(record.intervention_software):
+        nv = normalize_technology(raw)
+        entry = {
+            "raw": raw,
+            "value": nv.value,
+            "source": nv.source,
+            "method": nv.method,
+            "confidence": round(nv.confidence, 3),
+            "version": nv.version,
+        }
+        label = technology_label(nv.value)
+        if label:
+            entry["label"] = label
+        family = technology_family(nv.value)
+        if family:
+            entry["family"] = family
+        payload["software"][raw] = entry
+
+    return payload
+
+
+def run_vendor_technology_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> dict:
+    """Normalize vendors + technologies on all intervention records.
+
+    Writes ``intervention_vendors_normalized`` and
+    ``intervention_software_normalized`` when ``dry_run=False``. Raw values are
+    preserved in the original columns. Reports mapping coverage and the
+    unmapped long tail so the taxonomy can be extended iteratively.
+    """
+    from compass_collector.models.intervention import InterventionRecord
+
+    query = session.query(InterventionRecord)
+    if limit:
+        query = query.limit(limit)
+    records = query.all()
+
+    vendor_raw_total = 0
+    vendor_mapped = 0
+    tech_raw_total = 0
+    tech_mapped = 0
+    records_with_vendors = 0
+    records_with_tech = 0
+    canonical_vendors: Counter = Counter()
+    canonical_tech: Counter = Counter()
+    tech_families: Counter = Counter()
+    unmapped_vendors: Counter = Counter()
+    unmapped_tech: Counter = Counter()
+    written = 0
+
+    for rec in records:
+        payload = normalize_vendors_software(rec)
+        vp, sp = payload["vendors"], payload["software"]
+        if vp:
+            records_with_vendors += 1
+        if sp:
+            records_with_tech += 1
+        for raw, entry in vp.items():
+            vendor_raw_total += 1
+            if entry["confidence"] >= 0.7:
+                vendor_mapped += 1
+                canonical_vendors[entry["value"]] += 1
+            else:
+                unmapped_vendors[raw] += 1
+        for raw, entry in sp.items():
+            tech_raw_total += 1
+            if entry["confidence"] >= 0.7:
+                tech_mapped += 1
+                canonical_tech[entry["value"]] += 1
+                if entry.get("family"):
+                    tech_families[entry["family"]] += 1
+            else:
+                unmapped_tech[raw] += 1
+
+        if not dry_run:
+            rec.intervention_vendors_normalized = vp or {}
+            rec.intervention_software_normalized = sp or {}
+            written += 1
+
+    if not dry_run:
+        session.commit()
+
+    return {
+        "dry_run": dry_run,
+        "total_records": len(records),
+        "written": written,
+        "vendor": {
+            "records_with_vendors": records_with_vendors,
+            "raw_values": vendor_raw_total,
+            "mapped": vendor_mapped,
+            "mapped_pct": round(100 * vendor_mapped / max(vendor_raw_total, 1), 1),
+            "distinct_raw": len(unmapped_vendors) + len(canonical_vendors),
+            "distinct_canonical": len(canonical_vendors),
+            "top_canonical": canonical_vendors.most_common(20),
+            "unmapped_count": len(unmapped_vendors),
+            "unmapped_top": unmapped_vendors.most_common(30),
+        },
+        "technology": {
+            "records_with_software": records_with_tech,
+            "raw_values": tech_raw_total,
+            "mapped": tech_mapped,
+            "mapped_pct": round(100 * tech_mapped / max(tech_raw_total, 1), 1),
+            "distinct_raw": len(unmapped_tech) + len(canonical_tech),
+            "distinct_canonical": len(canonical_tech),
+            "top_canonical": canonical_tech.most_common(20),
+            "families": tech_families.most_common(20),
+            "unmapped_count": len(unmapped_tech),
+            "unmapped_top": unmapped_tech.most_common(30),
+        },
+    }
+
+
 def run_backfill(session, dry_run: bool = True, limit: Optional[int] = None) -> dict:
     """Normalize all intervention records. Writes when ``dry_run=False``."""
     from compass_collector.models.intervention import InterventionRecord

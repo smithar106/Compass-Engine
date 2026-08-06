@@ -37,6 +37,11 @@ class InterventionRecord(Base):
     intervention_components = Column(JSON, default=list)
     intervention_software = Column(JSON, default=list)
     intervention_vendors = Column(JSON, default=list)
+    # Canonical knowledge layer (Phase 4): raw values preserved in the
+    # columns above; normalized values + provenance stored alongside.
+    # JSON: {raw_value: {raw, value, label, source, method, confidence, version}}
+    intervention_vendors_normalized = Column(JSON, default=dict)
+    intervention_software_normalized = Column(JSON, default=dict)
     intervention_teams_involved = Column(JSON, default=list)
     intervention_human_review_required = Column(Boolean, nullable=True)
     intervention_pilot_used = Column(Boolean, nullable=True)
