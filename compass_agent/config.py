@@ -53,6 +53,8 @@ class Settings:
     log_level: str = "INFO"
     gold_factory_enabled: bool = False
     gold_factory_max_applications: int = 3
+    outcome_discovery_enabled: bool = False
+    outcome_discovery_max_applications: int = 5
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> "tuple[Settings, list[str]]":
@@ -106,6 +108,8 @@ class Settings:
             log_level=str(env.get("AGENT_LOG_LEVEL") or "INFO").strip().upper(),
             gold_factory_enabled=_parse_bool(env.get("AGENT_GOLD_FACTORY_ENABLED"), False),
             gold_factory_max_applications=_int("AGENT_GOLD_FACTORY_MAX_APPLICATIONS", 3),
+            outcome_discovery_enabled=_parse_bool(env.get("AGENT_OUTCOME_DISCOVERY_ENABLED"), False),
+            outcome_discovery_max_applications=_int("AGENT_OUTCOME_DISCOVERY_MAX_APPLICATIONS", 5),
         )
         problems.extend(settings.validate())
         return settings, problems

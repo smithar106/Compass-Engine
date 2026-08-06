@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
         "promote",
         help="Quality-first evidence ops: Bronze audit + Silver→Gold promotion planning/apply",
     )
-    prom.add_argument("action", choices=["audit", "plan", "apply", "factory"], help="promotion action")
+    prom.add_argument("action", choices=["audit", "plan", "apply", "factory", "outcome-discovery"], help="promotion action")
     prom.add_argument("--tier", type=str, default="", help="limit analysis to a evidence tier (bronze/silver)")
     prom.add_argument("--limit", type=int, default=500, help="max records to load (default 500, 0 = all)")
     prom.add_argument("--apply-count", type=int, default=5, help="top-N promotions to apply (apply action only)")
@@ -724,6 +724,32 @@ def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str,
         for d in result.get("details") or []:
             print(f"  {d['record_id']}: level={d.get('evidence_level') or '-'} "
                   f"fields={d.get('applied_fields')} metrics_added={d.get('metrics_added')}")
+        for f in (result.get("failures") or [])[:5]:
+            print(f"  failed: {f.get('record_id')} ({f.get('reason')})")
+        return 0
+
+    if action == "outcome-discovery":
+        from compass_agent.daemon import BudgetTracker
+        from compass_agent.outcome_discovery import run_outcome_discovery
+
+        budget = BudgetTracker(
+            max_daily=settings.max_daily_llm_usd,
+            max_total=settings.max_total_llm_usd,
+            state_file=settings.state_file,
+        )
+        result = run_outcome_discovery(
+            settings,
+            budget,
+            max_applications=apply_count,
+            concurrency=apply_concurrency,
+            limit=limit,
+        )
+        if result.get("skipped"):
+            print(f"Outcome discovery skipped ({result['skipped']}).")
+            return 0
+        print(f"Outcome discovery: candidates={result.get('candidates')} "
+              f"applied={result.get('applied')} recovered_fields={result.get('recovered')} "
+              f"failed={result.get('failed')} (daily ${budget.daily_spent:.4f})")
         for f in (result.get("failures") or [])[:5]:
             print(f"  failed: {f.get('record_id')} ({f.get('reason')})")
         return 0

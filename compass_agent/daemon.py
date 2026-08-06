@@ -264,6 +264,7 @@ class Daemon:
         self._running = False
         self._shutdown_requested = False
         self._gf_cooldown: dict[str, int] = {}
+        self._od_cooldown: dict[str, int] = {}
 
     # -- signals -----------------------------------------------------------
     def _install_signal_handlers(self) -> None:
@@ -423,6 +424,46 @@ class Daemon:
 
         if self._gf_cooldown:
             self._gf_cooldown = {rid: n - 1 for rid, n in self._gf_cooldown.items() if n > 1}
+
+        # Outcome Discovery: recover decision-grade fields (deployment status,
+        # timeframe, sample size, baseline) for records missing them.
+        if self.settings.outcome_discovery_enabled and self.budget.can_work():
+            try:
+                from compass_agent.outcome_discovery import run_outcome_discovery
+
+                od = run_outcome_discovery(
+                    self.settings,
+                    self.budget,
+                    max_applications=self.settings.outcome_discovery_max_applications,
+                    concurrency=max(self.settings.llm_concurrency, 1),
+                    exclude_ids=set(self._od_cooldown),
+                )
+                if od.get("skipped"):
+                    self.logger.info(
+                        "Cycle %d: outcome-discovery skipped (%s).", cycle, od["skipped"]
+                    )
+                else:
+                    self.logger.info(
+                        "Cycle %d: outcome-discovery candidates=%d applied=%d recovered_fields=%d "
+                        "failed=%d (daily $%.2f / %.2f).",
+                        cycle,
+                        od.get("candidates", 0),
+                        od.get("applied", 0),
+                        od.get("recovered", 0),
+                        od.get("failed", 0),
+                        self.budget.daily_spent,
+                        self.settings.max_daily_llm_usd,
+                    )
+                    for f in (od.get("failures") or [])[:3]:
+                        self.logger.warning("Cycle %d: outcome-discovery failed %s (%s)", cycle, f.get("record_id"), f.get("reason"))
+                    for f in (od.get("failures") or []):
+                        if f.get("reason") in ("no_fields_recovered", "no_source_text"):
+                            self._od_cooldown[f["record_id"]] = 60
+            except Exception as exc:
+                self.logger.error("Cycle %d: outcome-discovery failed: %s", cycle, exc)
+
+        if self._od_cooldown:
+            self._od_cooldown = {rid: n - 1 for rid, n in self._od_cooldown.items() if n > 1}
 
         self.budget.check_alerts(logger=self.logger, notify=self.notify)
 
