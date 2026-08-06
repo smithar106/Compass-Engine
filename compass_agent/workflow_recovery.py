@@ -67,6 +67,24 @@ def _candidate(rec: Any) -> bool:
         return True
 
 
+def _source_rank(session, rec: Any) -> int:
+    """Cheapest-to-process candidates first: 2=doc body, 1=http url, 0=none."""
+    doc_id = getattr(rec, "document_id", None)
+    if doc_id:
+        try:
+            from compass_collector.models.document import Document
+
+            doc = session.get(Document, doc_id)
+            if doc and doc.cleaned_text and len(str(doc.cleaned_text).strip()) >= 80:
+                return 2
+        except Exception:  # noqa: BLE001
+            pass
+    comps = getattr(rec, "intervention_components", None) or {}
+    if isinstance(comps, dict) and str(comps.get("source_url") or "").startswith(("http://", "https://")):
+        return 1
+    return 0
+
+
 def _source_text(session, rec: Any) -> str:
     """Document body first (already fetched), HTTP fetch as fallback."""
     doc_id = getattr(rec, "document_id", None)
@@ -163,7 +181,9 @@ def run_workflow_recovery(
     session = Session()
     try:
         records = session.query(InterventionRecord).limit(limit).all()
-        candidates = [r for r in records if _candidate(r)][:max_applications]
+        candidates = [r for r in records if _candidate(r)]
+        candidates.sort(key=lambda r: _source_rank(session, r), reverse=True)
+        candidates = candidates[:max_applications]
 
         client = None
         if llm is None and not dry_run:
