@@ -242,6 +242,9 @@ WORKFLOW_KEYWORDS: list[tuple[str, str]] = [
     ("scheduling", "scheduling"),
     ("dispatch", "scheduling"),
     ("quality control", "quality_control"),
+    ("quality management", "quality_control"),
+    ("qms", "quality_control"),
+    ("online shopping", "order_processing"),
     ("facilities", "facilities_management"),
     # IT / engineering
     ("cloud migration", "cloud_migration"),

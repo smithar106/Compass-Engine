@@ -109,6 +109,7 @@ CANONICAL_VENDORS: dict[str, str] = {
     "hyperion": "Hyperion",
     "rio_mini": "RIO Mini",
     "afi_labs": "Afi Labs",
+    "bland_ai": "Bland AI",
 }
 
 # Alias map: normalized phrase → canonical vendor key.
@@ -222,6 +223,18 @@ VENDOR_ALIASES: dict[str, str] = {
     "zapier": "zapier",
     "miro": "miro",
     "lattice": "lattice",
+    # Google product names stored in the vendor column (data hygiene) → owner
+    "bigquery": "google_cloud",
+    "vertex ai": "google_cloud",
+    "dialogflow": "google_cloud",
+    "conversational agents": "google_cloud",
+    "customer engagement suite": "google_cloud",
+    "looker": "google_cloud",
+    "looker studio": "google_cloud",
+    "gemini enterprise agent platform": "gemini",
+    "gemini enterprise": "gemini",
+    "google maps platform": "google_cloud",
+    "bland ai": "bland_ai",
 }
 
 # Keyword → vendor key for fuzzy/prefix matching (confidence 0.7). Most
@@ -278,13 +291,21 @@ VENDOR_KEYWORDS: list[tuple[str, str]] = [
     ("appinventiv", "appinventiv"),
     ("devoteam", "devoteam"),
     ("calfus", "calfus"),
+    ("bland ai", "bland_ai"),
+    ("bigquery", "google_cloud"),
+    ("vertex ai", "google_cloud"),
+    ("dialogflow", "google_cloud"),
+    ("conversational agents", "google_cloud"),
+    ("looker", "google_cloud"),
+    ("maps platform", "google_cloud"),
 ]
 
 _VENDOR_KEY_RE = re.compile(r"[^a-z0-9]+")
 # Legal/org suffixes only — NOT product words like "service"/"software"/"cloud",
 # which are part of technology product names (Jira Service Management, etc.).
+# "co" is deliberately excluded: it appears in product names (Co-Pilot, CoPilot).
 _VENDOR_FILLER_RE = re.compile(
-    r"\b(the|and|inc|corp|co|company|llc|ltd|plc|gmbh|ag|group|holdings?|"
+    r"\b(the|and|inc|corp|company|llc|ltd|plc|gmbh|ag|group|holdings?|"
     r"limited|llp|pte)\b\.?",
     re.IGNORECASE,
 )
@@ -441,6 +462,21 @@ CANONICAL_TECHNOLOGIES: dict[str, dict] = {
     "workspace": {"label": "Google Workspace", "family": "collaboration"},
     "notebooklm": {"label": "NotebookLM", "family": "genai"},
     "claude": {"label": "Anthropic Claude", "family": "genai"},
+    "servicenow": {"label": "ServiceNow", "family": "it_service"},
+    "elastic": {"label": "Elasticsearch", "family": "data_integration"},
+    "concur": {"label": "Concur", "family": "erp"},
+    "gitlab": {"label": "GitLab", "family": "dev_tools"},
+    "imagen": {"label": "Imagen", "family": "genai"},
+    "veo": {"label": "Veo", "family": "genai"},
+    "flutterflow": {"label": "FlutterFlow", "family": "dev_tools"},
+    "firestore": {"label": "Firestore", "family": "cloud_compute"},
+    "cloud_sql": {"label": "Cloud SQL", "family": "cloud_compute"},
+    "firebase": {"label": "Firebase", "family": "cloud_compute"},
+    "dataplex": {"label": "Dataplex Knowledge Catalog", "family": "data_integration"},
+    "document_understanding": {"label": "Document Understanding", "family": "document"},
+    "ocr": {"label": "OCR", "family": "document"},
+    "agent_platform": {"label": "Agent Platform", "family": "genai"},
+    "google_maps": {"label": "Google Maps Platform", "family": "cloud_compute"},
     # Adobe / content / marketing
     "adobe_commerce": {"label": "Adobe Commerce", "family": "ecommerce"},
     "marketo": {"label": "Adobe Marketo Engage", "family": "marketing"},
@@ -530,6 +566,26 @@ TECH_ALIASES: dict[str, str] = {
     "google dataflow": "dataflow",
     "cortex": "snowflake_cortex",
     "document automation": "document_automation",
+    "servicenow": "servicenow",
+    "service now": "servicenow",
+    "elastic": "elastic",
+    "elasticsearch": "elastic",
+    "concur": "concur",
+    "gitlab": "gitlab",
+    "imagen": "imagen",
+    "veo": "veo",
+    "flutterflow": "flutterflow",
+    "firestore": "firestore",
+    "cloud sql": "cloud_sql",
+    "firebase": "firebase",
+    "firebase authentication": "firebase",
+    "dataplex": "dataplex",
+    "knowledge catalog": "dataplex",
+    "document understanding": "document_understanding",
+    "ocr": "ocr",
+    "agent platform": "agent_platform",
+    "google maps platform": "google_maps",
+    "google cloud customer engagement suite": "agent_platform",
     "uipath": "uipath",
     "uipath platform": "uipath_platform",
 }
@@ -602,6 +658,24 @@ TECH_KEYWORDS: list[tuple[str, str]] = [
     ("dataflow", "dataflow"),
     ("cortex", "snowflake_cortex"),
     ("document automation", "document_automation"),
+    ("automation pilot", "uipath"),
+    ("servicenow", "servicenow"),
+    ("service now", "servicenow"),
+    ("elastic", "elastic"),
+    ("concur", "concur"),
+    ("gitlab", "gitlab"),
+    ("imagen", "imagen"),
+    ("veo", "veo"),
+    ("flutterflow", "flutterflow"),
+    ("firestore", "firestore"),
+    ("cloud sql", "cloud_sql"),
+    ("firebase", "firebase"),
+    ("dataplex", "dataplex"),
+    ("knowledge catalog", "dataplex"),
+    ("document understanding", "document_understanding"),
+    ("ocr", "ocr"),
+    ("agent platform", "agent_platform"),
+    ("maps platform", "google_maps"),
     ("vertex", "vertex_ai"),
     ("dialogflow", "dialogflow"),
     ("conversational agents", "conversational_agents"),
