@@ -37,6 +37,7 @@ from compass_collector.api.enrichment_router import router as enrichment_router
 from compass_collector.api.outcome_router import router as outcome_router
 from compass_collector.api.coverage_router import router as coverage_router
 from compass_collector.api.quality_router import router as quality_router
+from compass_collector.api.pages_router import router as pages_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compass-engine")
@@ -55,6 +56,7 @@ app.include_router(enrichment_router)
 app.include_router(outcome_router)
 app.include_router(coverage_router)
 app.include_router(quality_router)
+app.include_router(pages_router)
 
 _metadata_cache = None
 
