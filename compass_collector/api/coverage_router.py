@@ -116,3 +116,24 @@ def decision_coverage(request: Request = None):
         "by_business_function": _rows(funcs),
         "by_workflow": _rows(workflows),
     }
+
+
+@router.get("/gaps")
+def evidence_gaps(request: Request = None, top: int = 20, min_impact: float = 0.0):
+    """Evidence Gap Engine v2 report — decision coverage KPI + shopping list.
+
+    Computed on demand from the collector DB (same auth as coverage). The
+    nightly report is the agent's job; this endpoint serves the current state
+    to the product/UI.
+    """
+    if not _authorized(request):
+        return {"error": "unauthorized"}, 401
+
+    from compass_agent.evidence_gap import run_gap_engine
+
+    db = get_session()
+    try:
+        report = run_gap_engine(session=db, top_n=top, min_impact=min_impact)
+    finally:
+        db.close()
+    return report.to_dict()

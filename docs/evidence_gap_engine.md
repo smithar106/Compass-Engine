@@ -246,8 +246,9 @@ planner consumption order (shopping list before DDG).
 |---|---|---|
 | 0 — Canonical vendors/technologies + hardened org backfill | **done** (branch `feat/canonical-vendor-technology`) | vendors 316→58, tech 280→72; canonical industry 30.3%→97.6% on snapshot |
 | 0b — Workflow canonicalization + inference | **done** (`organization/workflow_taxonomy.py`, `scripts/backfill_workflow.py`) | free-text workflows → canonical `ALL_WORKFLOWS` slugs; records without a stored workflow get one inferred from title/problem text (earliest-keyword-wins). Snapshot: 141 stored → 719 mapped (55.1%), 68 canonical slugs |
-| 2 — Gap model v2 | **done** (`compass_agent/evidence_gap.py`, CLI `gaps`) | multi-dimensional needs, diversity/concentration flags, measured-demand override, sparse-dimension preferences, composed search terms, library priority; 25 tests |
-| 3 — Nightly report + persistence | **partial** | `--write` → `data/gaps/{evidence_gap_report,shopping_list}.json`; `GET /api/evidence/gaps` endpoint not yet wired (needs auth pattern from coverage_router) |
+| 0c — LLM workflow recovery | **done** (`compass_agent/workflow_recovery.py`, `scripts/workflow_recovery.py`) | recovers the primary workflow from the **document body** for records deterministic inference can't classify (generic vendor-blog titles); recovered phrases mapped onto the canonical taxonomy, unmapped phrases returned as taxonomy candidates for table extension. Budget-gated, idempotent, dry-run, injectable LLM for tests (12 tests) |
+| 2 — Gap model v2 | **done** (`compass_agent/evidence_gap.py`, CLI `gaps`) | multi-dimensional needs, diversity/concentration flags, measured-demand override, sparse-dimension preferences, composed search terms, library priority |
+| 3 — Nightly report + persistence | **done** | `--write` → `data/gaps/`; **`GET /api/evidence/gaps`** endpoint added to `coverage_router.py` (same auth as coverage) |
 | 4 — Discovery inversion | not started | planner consumes shopping list first |
 | 5 — Demand telemetry | not started | analyze/outcome query logging |
 | 6 — Enrichment feedback | not started | sparse dims → Outcome Discovery Worker |
