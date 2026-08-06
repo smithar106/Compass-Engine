@@ -188,6 +188,14 @@ def create_analysis(req: AnalyzeCreateRequest):
     if not req.problem_text.strip():
         raise HTTPException(status_code=400, detail="problem_text is required")
 
+    # Phase 5: demand telemetry — what decision area is being asked about?
+    try:
+        from compass_collector.api.demand_telemetry import record_demand_from_text
+
+        record_demand_from_text(req.problem_text)
+    except Exception:
+        pass  # telemetry must never break the analyze flow
+
     session = AnalysisSession(
         id=_new_id(),
         original_input=req.problem_text.strip()[:8000],

@@ -28,6 +28,10 @@ class Campaign:
     source_types: list[str] = field(default_factory=list)
     estimated_records_needed: int = 0
     expected_impact: float = 0.0
+    # Gap Engine v2 (Phase 4): composed hunting directives. In-memory only —
+    # used by the current discovery pass; not persisted in the store.
+    search_terms: list[str] = field(default_factory=list)
+    library_priority: list[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     status: str = "planned"  # planned | active | completed | archived
     discovered: int = 0

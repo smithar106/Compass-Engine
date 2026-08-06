@@ -19,6 +19,45 @@ from compass_agent.campaign import Campaign, CampaignPlanner
 from compass_agent.gap_analysis import analyze_gaps
 from compass_agent.store import AgentStore
 
+
+def _open_collector_session(db_path: str):
+    """SQLAlchemy session bound directly to the collector DB file."""
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.orm import sessionmaker
+
+    from compass_collector.database import Base
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        existing = {c["name"] for c in inspect(engine).get_columns("intervention_records")}
+        for col in ("workflow_normalized", "intervention_vendors_normalized", "intervention_software_normalized"):
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE intervention_records ADD COLUMN {col} JSON"))
+    return sessionmaker(bind=engine)()
+
+
+def _needs_to_gaps(need) -> list:
+    """Map a Gap Engine v2 EvidenceNeed onto v1 GapCategory planning input."""
+    from compass_agent.gap_analysis import GapCategory
+
+    return [
+        GapCategory(
+            workflow=need.workflow,
+            business_function=need.business_function,
+            total_records=need.total_records,
+            gold=need.gold,
+            silver=need.decision_grade,
+            bronze=need.supporting,
+            field_coverage=need.field_coverage,
+            missing_fields=need.missing_fields,
+            gap_score=need.gap_score,
+            demand=need.demand,
+            expected_impact=need.expected_impact,
+            estimated_records_needed=need.estimated_records_needed,
+        )
+    ]
+
 log = logging.getLogger("compass_agent.evidence_ops")
 
 DEFAULT_DISCOVER_PER_CYCLE = 200
@@ -170,13 +209,36 @@ def run_evidence_ops(
     crawled recently.
     """
     from compass_agent.campaign import Campaign, CampaignPlanner
+    from compass_agent.gap_analysis import GapCategory, analyze_gaps
     from compass_agent.libraries import ensure_libraries, prioritize_libraries, run_library
 
     records = load_records(collector_db)
     if not records:
         return {"planned": 0, "campaign": None, "discovered": 0, "accepted": 0, "rejected": 0}
 
-    gaps = analyze_gaps(records)
+    # ── Gap Engine v2: the shopping list drives the hunt (Phase 4 inversion) ──
+    # Plan from the top evidence need (workflow × function × diversity ×
+    # field gaps) instead of generic gap categories. Falls back to the v1
+    # analyze_gaps when the v2 engine has no actionable need.
+    need = None
+    try:
+        from compass_agent.evidence_gap import run_gap_engine
+
+        db = _open_collector_session(collector_db)
+        try:
+            report = run_gap_engine(session=db, top_n=1, min_impact=min_impact)
+            needs = report.shopping_list
+            need = needs[0] if needs else None
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("gap engine v2 failed (%s) — falling back to v1 gaps", exc)
+        need = None
+
+    if need is not None:
+        gaps = _needs_to_gaps(need)
+    else:
+        gaps = analyze_gaps(records)
 
     active = store.list_campaigns(status="active")
     if not active:
@@ -188,41 +250,28 @@ def run_evidence_ops(
     else:
         campaign = Campaign(**active[0])
 
+    # Attach the shopping-list directives (targeted hunts) to the campaign.
+    if need is not None:
+        campaign.search_terms = need.search_terms
+        campaign.library_priority = need.source_library_priority
+
     result = {"campaign": campaign.id, "workflow": campaign.workflow,
               "discovered": 0, "accepted": 0, "rejected": 0, "cost_usd": 0.0, "source": "none"}
 
-    # 1) DDG search first — high-volume discovery from 130 ROI queries.
-    #    Runs every cycle. Libraries are secondary.
-    try:
-        report = discovery.run(campaign, max_sources=max_sources)
-    except Exception as exc:
-        log.warning("discovery run failed: %s", exc)
-        report = None
-    if report is not None:
-        result.update({
-            "discovered": report.sources_discovered,
-            "accepted": report.accepted,
-            "rejected": report.rejected,
-            "cost_usd": round(report.cost_usd, 6),
-            "source": "ddg_search",
-            "source_report": report.source_report(),
-        })
-        campaign.discovered += report.sources_discovered
-        campaign.accepted += report.accepted
-        campaign.rejected += report.rejected
-        campaign.cost_usd += report.cost_usd
-
-    # 2) Source Library — secondary pass, only if budget allows.
+    # 1) Targeted source library FIRST — the need's top-priority library.
+    #    Generic DDG search is now the FALLBACK, not the default.
     ensure_libraries(store)
     libraries = prioritize_libraries(store)
     if libraries:
+        target_id = campaign.library_priority[0] if getattr(campaign, "library_priority", None) else ""
+        lib = next((l for l in libraries if l.get("id") == target_id), libraries[0])
         try:
             lib_result = run_library(
-                store, libraries[0], discovery, campaign,
+                store, lib, discovery, campaign,
                 max_pages=min(max_sources // 2, 10),
             )
         except Exception as exc:
-            log.warning("library crawl failed for %s: %s", libraries[0]["id"], exc)
+            log.warning("library crawl failed for %s: %s", lib["id"], exc)
             lib_result = None
         if lib_result and lib_result["accepted"] > 0:
             campaign.discovered += lib_result["pages_processed"]
@@ -233,10 +282,28 @@ def run_evidence_ops(
             result["accepted"] += lib_result["accepted"]
             result["rejected"] += lib_result["rejected"]
             result["cost_usd"] = round(result["cost_usd"] + lib_result["cost_usd"], 6)
-            if not result["source"].startswith("ddg"):
-                result["source"] = f"library:{libraries[0]['id']}"
-            else:
-                result["source"] += f"+library:{libraries[0]['id']}"
+            result["source"] = f"library:{lib['id']}"
+
+    # 2) Search pass — targeted shopping-list queries (or generic fallback).
+    try:
+        report = discovery.run(campaign, max_sources=max_sources)
+    except Exception as exc:
+        log.warning("discovery run failed: %s", exc)
+        report = None
+    if report is not None:
+        result.update({
+            "discovered": result["discovered"] + report.sources_discovered,
+            "accepted": result["accepted"] + report.accepted,
+            "rejected": result["rejected"] + report.rejected,
+            "cost_usd": round(result["cost_usd"] + report.cost_usd, 6),
+            "source_report": report.source_report(),
+        })
+        campaign.discovered += report.sources_discovered
+        campaign.accepted += report.accepted
+        campaign.rejected += report.rejected
+        campaign.cost_usd += report.cost_usd
+        if not result["source"].startswith("library"):
+            result["source"] = "ddg_search" if not need else "ddg_targeted"
 
     store.update_campaign(
         campaign.id,

@@ -37,6 +37,13 @@ class OutcomeRequest(BaseModel):
 def record_outcome(req: OutcomeRequest):
     if not req.recommendation_id:
         raise HTTPException(status_code=400, detail="recommendation_id required")
+    # Phase 5: demand telemetry — the intervention a customer actually pursued.
+    try:
+        from compass_collector.api.demand_telemetry import record_demand_from_text
+
+        record_demand_from_text(req.implemented_intervention or req.measured_result)
+    except Exception:
+        pass  # telemetry must never break outcome recording
     db = get_session()
     try:
         rec = DecisionOutcome(

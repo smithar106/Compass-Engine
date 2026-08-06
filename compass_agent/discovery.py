@@ -110,6 +110,13 @@ def _clean_url(url: str) -> str:
 class DuckDuckGoSearch(SearchBackend):
     """Real search via the engine's WebSearchScraper (no API key)."""
 
+    def build_queries(self, campaign: Campaign) -> list[str]:
+        """Shopping-list hunts run the composed queries; otherwise generic ROI."""
+        terms = getattr(campaign, "search_terms", None)
+        if terms:
+            return list(terms)
+        return build_queries(campaign.workflow, campaign.source_types)
+
     def search(self, query: str, max_results: int = 10) -> list[dict]:
         from compass_collector.scraper.sources.web_search import WebSearchScraper
 

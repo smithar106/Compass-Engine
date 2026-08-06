@@ -356,6 +356,14 @@ def cmd_gaps(settings: Settings, problems: list[str], top: int, min_impact: floa
     if demand_json:
         with open(demand_json) as fh:
             demand_override = _json.load(fh)
+    elif not demand_override:
+        # Phase 5: measured demand from Analyze/Outcome telemetry.
+        try:
+            from compass_collector.api.demand_telemetry import load_demand_for_engine
+
+            demand_override = load_demand_for_engine()
+        except Exception:
+            demand_override = {}
 
     try:
         report = run_gap_engine(session=session, top_n=top, min_impact=min_impact,
