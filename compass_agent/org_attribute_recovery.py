@@ -50,10 +50,16 @@ SYSTEM_PROMPT = (
 
 
 def _candidate(rec: Any) -> bool:
-    """True when either geography or employee count is missing/untrusted."""
+    """True when either geography or employee count is missing/untrusted.
+
+    Records already processed by the recovery worker (marker present) are
+    excluded so repeated passes don't re-burn LLM budget.
+    """
     norm = getattr(rec, "organization_normalized", None) or {}
     if not isinstance(norm, dict):
         return True
+    if norm.get("_recovery"):
+        return False
 
     def known(key: str) -> bool:
         entry = norm.get(key)
@@ -226,6 +232,12 @@ def run_org_attribute_recovery(
             text = _source_text(session, rec)
             if len((text or "").strip()) < 80:
                 failed += 1
+                if not dry_run:
+                    norm = dict(getattr(rec, "organization_normalized", None) or {})
+                    norm["_recovery"] = {"source": "no_source", "confidence": 0.0,
+                                         "recorded_at": __import__("datetime").datetime.now(
+                                             __import__("datetime").timezone.utc).isoformat()}
+                    rec.organization_normalized = norm
                 continue
 
             if dry_run:
@@ -248,6 +260,12 @@ def run_org_attribute_recovery(
             entries = _map_recovered(payload if isinstance(payload, dict) else {})
             if not entries:
                 failed += 1
+                if not dry_run:
+                    norm = dict(getattr(rec, "organization_normalized", None) or {})
+                    norm["_recovery"] = {"source": "llm_recovered_none", "confidence": 0.0,
+                                         "recorded_at": __import__("datetime").datetime.now(
+                                             __import__("datetime").timezone.utc).isoformat()}
+                    rec.organization_normalized = norm
                 continue
 
             norm = dict(getattr(rec, "organization_normalized", None) or {})
