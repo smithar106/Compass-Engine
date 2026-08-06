@@ -144,6 +144,37 @@ def _has_quantified_metric(metrics: list) -> bool:
 
 # ── Bronze audit ─────────────────────────────────────────────────────────
 
+def record_source_url(record: dict) -> str:
+    """The fetchable source URL for a record, or '' if it has none.
+
+    New records persist the URL in ``intervention_components.source_url`` at
+    ingest. Older (legacy) records store a non-URL ``source_id`` (e.g.
+    ``compass_agent:discovery``) and cannot be re-fetched, so promotion cannot
+    recover missing components from them and they are treated as non-promotable.
+    """
+    comps = record.get("intervention_components") or {}
+    if isinstance(comps, dict):
+        url = str(comps.get("source_url") or "").strip()
+        if url.startswith(("http://", "https://")):
+            return url
+    src = str(record.get("source_id") or "").strip()
+    if src.startswith(("http://", "https://")):
+        return src
+    return ""
+
+
+def _is_url(value) -> bool:
+    return str(value or "").strip().startswith(("http://", "https://"))
+
+
+def is_promotable(record: dict) -> bool:
+    """A record can be promoted only if there is a fetchable source document
+    (a stored https source_url or a URL source_id) to re-extract from."""
+    comps = record.get("intervention_components") or {}
+    if isinstance(comps, dict) and _is_url(comps.get("source_url")):
+        return True
+    return _is_url(record.get("source_id"))
+
 BRONZE_REASON_MISSING_OUTCOME = "missing_outcome_metrics"
 BRONZE_REASON_WEAK_PROVENANCE = "weak_provenance"
 BRONZE_REASON_THIN_IMPLEMENTATION = "incomplete_implementation_detail"
@@ -230,6 +261,23 @@ def audit_bronze(records: list) -> BronzeAudit:
     return audit
 
 
+def promotion_readiness(records: list) -> dict:
+    """Measure how much of the corpus can actually be promoted vs legacy.
+
+    Legacy records (no stored source_url / URL source_id) cannot be re-fetched,
+    so their gaps are unrecoverable through the promotion loop and need a
+    separate backfill/re-ingest project. This surfaces the promotable vs legacy
+    split so the gap can be measured, not guessed.
+    """
+    promotable = [r for r in records if is_promotable(r)]
+    legacy = [r for r in records if not is_promotable(r)]
+    return {
+        "total_records": len(records),
+        "promotable": {"count": len(promotable), "pct": round(100 * len(promotable) / max(len(records), 1), 1)},
+        "legacy_blocked": {"count": len(legacy), "pct": round(100 * len(legacy) / max(len(records), 1), 1)},
+    }
+
+
 # ── Promotion planning ───────────────────────────────────────────────────
 
 @dataclass
@@ -244,6 +292,7 @@ class Promotion:
     fillable_missing: list
     non_fillable_missing: list
     rank: float = 0.0
+    promotable: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -257,6 +306,7 @@ class Promotion:
             "fillable_missing": self.fillable_missing,
             "non_fillable_missing": self.non_fillable_missing,
             "rank": round(self.rank, 3),
+            "promotable": self.promotable,
         }
 
 
@@ -274,6 +324,8 @@ def plan_promotions(records: list, target: str = "gold") -> list[Promotion]:
     promotions: list[Promotion] = []
 
     for rec in records:
+        if not is_promotable(rec):
+            continue  # legacy records have no fetchable source to re-extract
         pts = compute_points(rec)
         if pts["tier"] == target_tier or pts["tier"] == "rejected":
             continue
@@ -299,6 +351,7 @@ def plan_promotions(records: list, target: str = "gold") -> list[Promotion]:
                 fillable_missing=fillable,
                 non_fillable_missing=non_fillable,
                 rank=rank,
+                promotable=is_promotable(rec),
             )
         )
 
@@ -330,7 +383,7 @@ def promotion_prompt(record: dict, promotion: Promotion) -> str:
     specs = [PROMOTION_FIELD_SPECS[c] for c in promotion.fillable_missing]
     fields = [s["llm_key"] for s in specs] or ["no_fields"]
     return (
-        f"Source document URL: {record.get('source_id') or ''}\n"
+        f"Source document URL: {record_source_url(record) or record.get('source_id') or ''}\n"
         f"Title: {record.get('intervention_title') or ''}\n"
         f"Organization: {record.get('organization_name') or ''}\n"
         f"Currently the record is missing these evidence components and they "
@@ -681,6 +734,11 @@ def apply_promotions(
         if not record or not promo.fillable_missing:
             failed.append({"record_id": promo.record_id, "reason": "no_fillable_missing"})
             continue
+        if not promo.promotable:
+            # Legacy records (no stored source_url / URL source_id) cannot be
+            # re-fetched, so the remaining gap is unrecoverable from source.
+            failed.append({"record_id": promo.record_id, "reason": "no_source_url"})
+            continue
 
         text = _fetch_source(record)
         if len((text or "").strip()) < 80:
@@ -755,11 +813,8 @@ def _fetch_source(record: dict) -> str:
     ``source_id`` is not a URL (discovered records store the URL there)."""
     from compass_agent.discovery import HttpFetcher
 
-    url = record.get("source_id") or ""
-    if not url.startswith(("http://", "https://")):
-        comps = record.get("intervention_components") or {}
-        url = comps.get("source_url") if isinstance(comps, dict) else ""
-    if not url.startswith(("http://", "https://")):
+    url = record_source_url(record)
+    if not url:
         return ""
     try:
         return HttpFetcher().fetch(url, record.get("intervention_title", ""))

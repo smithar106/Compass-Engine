@@ -39,7 +39,7 @@ def rec(**over):
         "implementation_richness": "",
         "evidence_level": "",
         "intervention_title": "RPA deployment",
-        "intervention_components": {},
+        "intervention_components": {"source_url": "https://example.com/case-study"},
         "metrics": [],
     }
     d.update(over)
@@ -104,6 +104,19 @@ class TestBronzeAudit(unittest.TestCase):
         audit = audit_bronze(records)
         self.assertEqual(audit.total_bronze, 5)
         self.assertEqual(sum(audit.reasons.values()), 5)
+
+    def test_legacy_records_excluded_from_promotion(self):
+        from compass_agent.promote import is_promotable, plan_promotions, promotion_readiness
+
+        legacy = rec(id="legacy")  # default rec has source_url => promotable
+        legacy["intervention_components"] = {}
+        legacy["source_id"] = "compass_agent:discovery:abc"  # non-URL => legacy
+        new_rec = rec(id="fresh")
+        self.assertFalse(is_promotable(legacy))
+        self.assertTrue(plan_promotions([legacy]) == [])
+        readiness = promotion_readiness([legacy, new_rec])
+        self.assertEqual(readiness["promotable"]["count"], 1)
+        self.assertEqual(readiness["legacy_blocked"]["count"], 1)
 
 
 class TestPlanPromotions(unittest.TestCase):

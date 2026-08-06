@@ -602,6 +602,7 @@ def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str,
         load_records,
         load_records_from_engine,
         plan_promotions,
+        promotion_readiness,
     )
 
     if source == "engine":
@@ -625,6 +626,14 @@ def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str,
     if action == "audit":
         audit = audit_bronze(records)
         print(f"Bronze audit over {len(records)} loaded records ({audit.total_bronze} bronze).")
+        readiness = promotion_readiness(records)
+        print(
+            f"  promotable={readiness['promotable']['count']} "
+            f"({readiness['promotable']['pct']}%) | "
+            f"legacy_blocked={readiness['legacy_blocked']['count']} "
+            f"({readiness['legacy_blocked']['pct']}%) "
+            "(legacy = no stored source_url, needs separate backfill)"
+        )
         if audit.total_bronze == 0:
             print("  (no bronze records in the loaded set)")
         from compass_agent.promote import BRONZE_REASON_LABELS
@@ -639,11 +648,18 @@ def cmd_promote(settings: Settings, problems: list[str], action: str, tier: str,
     if action == "plan":
         target = "gold"
         promotions = plan_promotions(records, target=target)
+        readiness = promotion_readiness(records)
         print(f"Silver→Gold promotion candidates (from {len(records)} loaded records):")
+        print(
+            f"  promotable={readiness['promotable']['count']} | "
+            f"legacy_blocked={readiness['legacy_blocked']['count']} "
+            "(legacy = no stored source_url, excluded from promotion)"
+        )
         for p in promotions[:15]:
+            tag = "" if p.promotable else " [legacy-blocked]"
             print(
                 f"  score={p.current_score}/8 gap={p.gap}  {p.organization_name[:32]:<32s} "
-                f"{p.intervention_title[:36]:<36s} fillable={','.join(p.fillable_missing) or '-'}"
+                f"{p.intervention_title[:36]:<36s} fillable={','.join(p.fillable_missing) or '-'}{tag}"
             )
         print(f"\nTotal candidates: {len(promotions)}")
         return 0
