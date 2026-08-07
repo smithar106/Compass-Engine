@@ -16,11 +16,13 @@ Usage:
     main.py status               Show system status
     main.py retry                Reset failed crawls to pending
     main.py reset                Delete database
-    main.py demo                 Run full demo with sample data
+    main.py classify              Classify all intervention records into canonical workflows
+    main.py demo                  Run full demo with sample data
     main.py pipeline             Run full pipeline (crawl → parse → extract → dedup → export)
 """
 
 import sys
+import os
 from compass_collector.cli.main import *
 from compass_collector.database import init_db
 
@@ -294,6 +296,9 @@ def main():
         print(f"\nExporting...")
         bridge.export()
         print(f"Done! Stats: {bridge.stats}")
+    elif cmd == "classify":
+        init_db()
+        cmd_classify()
     elif cmd == "demo":
         run_demo()
     else:
@@ -301,7 +306,106 @@ def main():
         print(__doc__)
 
 
-def run_demo():
+def cmd_classify():
+    """Run the workflow classification pipeline: keyword backfill + LLM recovery."""
+    import json
+    from compass_collector.database import get_session
+    from compass_collector.organization.workflow_taxonomy import (
+        normalize_workflow, infer_workflow, is_canonical, _best_keyword_match, _clean,
+    )
+    from compass_collector.organization.taxonomy import NormalizedValue
+    from compass_collector.models.intervention import InterventionRecord
+    from compass_collector.models.document import Document
+
+    session = get_session()
+    try:
+        records = session.query(InterventionRecord).all()
+        total = len(records)
+        classified = 0
+        uncat = 0
+
+        # Phase 1: keyword inference from title/problem/description/doc body
+        for rec in records:
+            comps = rec.intervention_components or {}
+            stored_wf = comps.get("workflow", "") if isinstance(comps, dict) else ""
+
+            if stored_wf:
+                nv = normalize_workflow(stored_wf)
+            else:
+                text = " ".join(filter(None, [rec.intervention_title or "", rec.problem_statement or ""]))
+                nv = infer_workflow(text)
+
+            # Fall through to description
+            if (not nv.value or nv.value == "uncategorized") and rec.intervention_description:
+                cleaned = _clean(str(rec.intervention_description)[:2000])
+                if cleaned:
+                    matched = _best_keyword_match(cleaned)
+                    if matched:
+                        slug, _ = matched
+                        nv = NormalizedValue(raw=str(rec.intervention_description)[:200], value=slug,
+                                             source="workflow_taxonomy", method="inferred",
+                                             confidence=0.4, version="workflow-v1")
+
+            # Fall through to doc body
+            if (not nv.value or nv.value == "uncategorized") and rec.document_id:
+                doc = session.get(Document, rec.document_id)
+                if doc and doc.cleaned_text:
+                    cleaned = _clean(str(doc.cleaned_text)[:3000])
+                    if cleaned:
+                        matched = _best_keyword_match(cleaned)
+                        if matched:
+                            slug, _ = matched
+                            nv = NormalizedValue(raw=str(doc.cleaned_text)[:200], value=slug,
+                                                 source="workflow_taxonomy", method="inferred",
+                                                 confidence=0.35, version="workflow-v1")
+
+            entry = {
+                "raw": nv.raw or "",
+                "value": nv.value,
+                "source": nv.source,
+                "method": nv.method,
+                "confidence": nv.confidence,
+                "version": nv.version,
+            }
+            rec.workflow_normalized = entry
+
+            if nv.value and nv.value != "uncategorized" and is_canonical(nv.value):
+                classified += 1
+            else:
+                uncat += 1
+
+        session.commit()
+        print(f"Phase 1 (keyword inference): {classified} classified, {uncat} uncategorized (of {total})")
+
+        # Phase 2: LLM recovery on remaining uncategorized
+        db_path = getattr(session.bind, "url", None)
+        if db_path and uncat > 0:
+            db_path = str(db_path).replace("sqlite:///", "")
+            api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+            if api_key and os.path.exists(db_path):
+                from compass_agent.workflow_recovery import run_workflow_recovery
+                result = run_workflow_recovery(
+                    db_path=db_path, api_key=api_key, provider="deepseek",
+                    max_applications=min(uncat + 50, 1000), concurrency=3, limit=total * 2,
+                    dry_run=False,
+                )
+                print(f"Phase 2 (LLM recovery): {result['recovered']} recovered, "
+                      f"{result['unmapped']} unmapped, cost=${result['cost_usd']:.4f}")
+
+        # Final tally
+        canonical = 0
+        remaining_uncat = 0
+        for rec in session.query(InterventionRecord).all():
+            wn = rec.workflow_normalized or {}
+            val = wn.get("value", "") if isinstance(wn, dict) else ""
+            if val and val != "uncategorized" and is_canonical(val):
+                canonical += 1
+            else:
+                remaining_uncat += 1
+        print(f"\nFinal: {canonical}/{total} canonical ({canonical*100/total:.1f}%), "
+              f"{remaining_uncat} uncategorized")
+    finally:
+        session.close()
     from compass_collector.pipeline.orchestrator import PipelineOrchestrator
     from compass_collector.config.settings import DATA_DIR, BASE_DIR
     from compass_collector.database import get_session

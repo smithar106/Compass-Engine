@@ -29,6 +29,7 @@ WORKFLOWS = {
         "financial_reporting", "budgeting", "forecasting",
         "audit", "expense_management", "revenue_recognition",
         "credit_scoring", "financial_consolidation",
+        "revenue_cycle_management", "loan_processing",
     ],
     "accounting": [
         "general_ledger", "reconciliation", "tax_preparation",
@@ -58,6 +59,8 @@ WORKFLOWS = {
         "clinical_documentation", "email_processing", "document_management",
         "field_service", "data_pipeline", "data_curation",
         "team_collaboration", "erp_implementation", "scm_implementation",
+        "predictive_maintenance", "master_data_management",
+        "workflow_automation", "cost_optimization",
     ],
     "supply_chain": [
         "demand_forecasting", "inventory_optimization", "supplier_management",
