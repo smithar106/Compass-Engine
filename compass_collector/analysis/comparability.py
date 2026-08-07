@@ -22,7 +22,7 @@ WORKFLOWS = {
     "customer_support": [
         "ticketing", "chat", "call_routing", "knowledge_base",
         "self_service", "sentiment_analysis", "quality_assurance",
-        "claims_processing",
+        "claims_processing", "appointment_booking", "contact_center",
     ],
     "finance": [
         "invoice_processing", "accounts_payable", "accounts_receivable",
@@ -46,11 +46,13 @@ WORKFLOWS = {
         "change_management", "asset_management", "backup_recovery",
         "cloud_migration", "network_management", "security_operations",
         "application_modernization", "ai_model_development", "ai_inference_serving",
+        "cloud_cost_management",
     ],
     "engineering": [
         "code_review", "ci_cd", "deployment", "testing",
         "incident_response", "capacity_planning", "performance_optimization",
         "api_management", "database_migration",
+        "code_generation", "data_integration",
     ],
     "operations": [
         "order_processing", "inventory_management", "warehouse_management",
@@ -61,6 +63,10 @@ WORKFLOWS = {
         "team_collaboration", "erp_implementation", "scm_implementation",
         "predictive_maintenance", "master_data_management",
         "workflow_automation", "cost_optimization",
+        "population_health_management", "retail_operations",
+        "public_service_delivery", "data_warehousing",
+        "customer_360", "manufacturing_execution",
+        "equipment_maintenance", "digital_transformation",
     ],
     "supply_chain": [
         "demand_forecasting", "inventory_optimization", "supplier_management",
@@ -72,7 +78,7 @@ WORKFLOWS = {
     ],
     "compliance": [
         "regulatory_reporting", "policy_management", "audit_trail",
-        "access_governance", "data_privacy",
+        "access_governance", "data_privacy", "fraud_detection",
     ],
     "procurement": [
         "vendor_selection", "purchase_order", "contract_negotiation",
@@ -81,6 +87,7 @@ WORKFLOWS = {
     "product": [
         "requirements_management", "roadmap_planning", "user_research",
         "a_b_testing", "feature_prioritization", "analytics",
+        "innovation_management",
     ],
     "design": [
         "design_systems", "prototyping", "user_testing",
