@@ -118,16 +118,46 @@ def decision_coverage(request: Request = None):
     }
 
 
+# Keys stripped from the public (product-facing) gap report. The full report
+# includes agent-internal hunt directives (composed search terms, which source
+# library to crawl next, vendor diversity targets); the product UI sees the
+# decision-coverage KPI, dimension coverage, and the ranked shopping list
+# WITHOUT those operational directives.
+_PUBLIC_STRIP_KEYS = ("search_terms", "source_library_priority", "vendor_diversity_target", "data_limited_fields")
+
+
+def _public_report(data: dict) -> dict:
+    """UI-shaped projection of a Gap Engine v2 report.
+
+    Keeps everything the product UI renders (decision coverage per function,
+    dimension coverage, per-need scores + targets) but strips the agent-internal
+    hunt directives from every need.
+    """
+    for bucket in ("needs", "shopping_list"):
+        for need in data.get(bucket) or []:
+            if not isinstance(need, dict):
+                continue
+            for key in _PUBLIC_STRIP_KEYS:
+                need.pop(key, None)
+            sl = need.get("shopping_list")
+            if isinstance(sl, dict):
+                for key in _PUBLIC_STRIP_KEYS:
+                    sl.pop(key, None)
+    return data
+
+
 @router.get("/gaps")
 def evidence_gaps(request: Request = None, top: int = 20, min_impact: float = 0.0):
     """Evidence Gap Engine v2 report — decision coverage KPI + shopping list.
 
-    Computed on demand from the collector DB (same auth as coverage). The
-    nightly report is the agent's job; this endpoint serves the current state
-    to the product/UI.
+    Dual-mode: with a valid agent key (``X-Compass-Agent-Key``) the full report
+    is returned including hunt directives (composed search terms, source-library
+    priority, vendor diversity targets). Public reads get the UI-shaped report
+    — decision coverage by function, dimension coverage, and the ranked
+    shopping list without the agent-internal directives — so the product UI can
+    surface "where evidence is deep and where we are actively filling".
     """
-    if not _authorized(request):
-        return {"error": "unauthorized"}, 401
+    agent = bool(request) and _authorized(request)
 
     from compass_agent.evidence_gap import run_gap_engine
 
@@ -136,4 +166,7 @@ def evidence_gaps(request: Request = None, top: int = 20, min_impact: float = 0.
         report = run_gap_engine(session=db, top_n=top, min_impact=min_impact)
     finally:
         db.close()
-    return report.to_dict()
+    data = report.to_dict()
+    if not agent:
+        data = _public_report(data)
+    return data

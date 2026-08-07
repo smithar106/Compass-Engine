@@ -134,8 +134,10 @@ class EvidenceNeed:
 ```
 
 Persisted nightly as `data/gaps/evidence_gap_report.json` (full) +
-`data/gaps/shopping_list.json` (top-N actionable) — and served read-only via
-`GET /api/evidence/gaps` (same auth as coverage).
+`data/gaps/shopping_list.json` (top-N actionable) — and served via
+`GET /api/evidence/gaps` in dual mode: agent key → full report (incl. hunt
+directives), public read → UI-shaped report for the product (decision coverage
+by function, dimension coverage, ranked shopping list).
 
 ---
 
@@ -248,9 +250,10 @@ planner consumption order (shopping list before DDG).
 | 0b — Workflow canonicalization + inference | **done** (`organization/workflow_taxonomy.py`, `scripts/backfill_workflow.py`) | free-text workflows → canonical `ALL_WORKFLOWS` slugs; records without a stored workflow get one inferred from title/problem text (earliest-keyword-wins). Snapshot: 141 stored → 719 mapped (55.1%), 68 canonical slugs |
 | 0c — LLM workflow recovery | **done** (`compass_agent/workflow_recovery.py`, `scripts/workflow_recovery.py`) | recovers the primary workflow from the **document body** for records deterministic inference can't classify (generic vendor-blog titles); recovered phrases mapped onto the canonical taxonomy, unmapped phrases returned as taxonomy candidates for table extension. Budget-gated, idempotent, dry-run, injectable LLM for tests (12 tests) |
 | 2 — Gap model v2 | **done** (`compass_agent/evidence_gap.py`, CLI `gaps`) | multi-dimensional needs, diversity/concentration flags, measured-demand override, sparse-dimension preferences, composed search terms, library priority |
-| 3 — Nightly report + persistence | **done** | `--write` → `data/gaps/`; **`GET /api/evidence/gaps`** endpoint added to `coverage_router.py` (same auth as coverage) |
-| 4 — Discovery inversion | not started | planner consumes shopping list first |
-| 5 — Demand telemetry | not started | analyze/outcome query logging |
+| 3 — Nightly report + persistence | **done** | `--write` → `data/gaps/`; **`GET /api/evidence/gaps`** endpoint added to `coverage_router.py` |
+| 4 — Discovery inversion | **done** | `evidence_ops.run_evidence_ops` plans from Gap Engine v2 top need (`_needs_to_gaps`), attaches `search_terms` + `library_priority` to the campaign, runs the need's top source library FIRST, then targeted DDG; generic search is fallback. Daemon `_do_work_cycle` calls it every cycle (wired). Tests: `test_daemon_wiring.py` (5), `test_discovery_inversion.py` (7) |
+| 5 — Demand telemetry | **done** | `demand_telemetry.py` records canonical workflow from Analyze/Outcome text to `data/telemetry/demand.json` (thread-safe, atomic rename); `load_demand_for_engine` normalizes 0..1; analyze + outcome routers wired; `gaps` CLI auto-loads measured demand |
+| 5b — Endpoint surfaced to product UI | **done** | `GET /api/evidence/gaps` is dual-mode: valid `X-Compass-Agent-Key` → full report (hunt directives incl. search terms/library priority); public read → UI-shaped report (decision coverage by function, dimension coverage, ranked shopping list, hunt directives stripped via `_public_report`). Compass-Web `/api/gaps` proxy route + Workspace coverage "Where evidence is thin" section (8 tests engine + 2 web) |
 | 6 — Enrichment feedback | not started | sparse dims → Outcome Discovery Worker |
 
 **Findings from the first production-shape run (on the 1,306-record snapshot):**

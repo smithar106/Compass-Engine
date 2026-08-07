@@ -108,5 +108,88 @@ class TestDecisionCoverage(unittest.TestCase):
         self.assertEqual(code, 401)
 
 
+class TestEvidenceGapsEndpoint(unittest.TestCase):
+    """Phase 5: /api/evidence/gaps is dual-mode — agent key → full report,
+    public read → UI-shaped payload (hunt directives stripped)."""
+
+    @classmethod
+    def setUpClass(cls):
+        session = _TestSession()
+        # One weak category (legal/contract review, no decision-grade) so the
+        # gap engine produces a ranked shopping list.
+        session.add_all([
+            InterventionRecord(
+                id="g-legal-1", organization_name="LegalCo", problem_business_function=["legal"],
+                intervention_components={"workflow": "contract review"},
+                result_status="unknown",
+            ),
+            InterventionRecord(
+                id="g-legal-2", organization_name="Firm B", problem_business_function=["legal"],
+                intervention_components={"workflow": "contract review"},
+                result_status="unknown",
+            ),
+            InterventionRecord(
+                id="g-fin-1", organization_name="Acme Corp", problem_business_function=["finance"],
+                intervention_components={"workflow": "invoice processing"},
+                result_status="completed", has_baseline=True, sample_size=100,
+                intervention_measurement_period_value=6,
+            ),
+        ])
+        session.commit()
+        session.close()
+
+    def _call(self, headers=None):
+        from compass_collector.api.coverage_router import evidence_gaps
+
+        with patch("compass_collector.api.coverage_router.get_session", side_effect=lambda: _TestSession()):
+            return evidence_gaps(FakeRequest(headers or {}))
+
+    def test_public_report_is_ui_shaped(self):
+        """No agent key → 200 (not 401) with the KPI/dimension/shopping-list shape."""
+        result = self._call()
+        self.assertNotIsInstance(result, tuple)  # not a (payload, code) rejection
+        self.assertIn("decision_coverage_by_function", result)
+        self.assertIn("dimension_coverage", result)
+        self.assertIn("shopping_list", result)
+        self.assertIn("total_records", result)
+        self.assertGreaterEqual(result["total_records"], 3)
+        self.assertIn("legal", result["decision_coverage_by_function"])
+        self.assertIn("finance", result["decision_coverage_by_function"])
+
+    def test_public_report_strips_hunt_directives(self):
+        """UI-shaped needs must not leak search_terms / library priority."""
+        result = self._call()
+        for bucket in ("needs", "shopping_list"):
+            for need in result[bucket]:
+                self.assertNotIn("search_terms", need)
+                self.assertNotIn("source_library_priority", need)
+                self.assertNotIn("vendor_diversity_target", need)
+                self.assertNotIn("data_limited_fields", need)
+                sl = need.get("shopping_list")
+                if isinstance(sl, dict):
+                    self.assertNotIn("search_terms", sl)
+                    self.assertNotIn("source_library_priority", sl)
+
+    def test_agent_key_gets_full_report(self):
+        """With a valid agent key the hunt directives are present."""
+        result = self._call({"X-Compass-Agent-Key": "sync-secret"})
+        self.assertNotIsInstance(result, tuple)
+        needs = result.get("needs") or []
+        self.assertTrue(needs)
+        found = next((n for n in needs if (n.get("shopping_list") or {}).get("search_terms")), None)
+        self.assertIsNotNone(found, "agent report should include search_terms")
+        self.assertTrue(found["shopping_list"]["search_terms"])
+        self.assertTrue(found["shopping_list"]["source_library_priority"])
+
+    def test_wrong_key_gets_public_report(self):
+        """An invalid key degrades to the public UI-shaped report (never 401s
+        the product read path)."""
+        result = self._call({"X-Compass-Agent-Key": "wrong"})
+        self.assertNotIsInstance(result, tuple)
+        needs = result.get("needs") or []
+        self.assertTrue(needs)
+        self.assertNotIn("search_terms", needs[0])
+
+
 if __name__ == "__main__":
     unittest.main()
