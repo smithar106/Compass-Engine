@@ -859,31 +859,76 @@ class DecisionEngine:
         }
 
 
-# ── Per-Constraint Weights ────────────────────────────────────────────────────
-# Different constraints need different scoring priorities.
-# Capacity → volume_fit matters more, Quality → automation_potential matters less.
+# ── Per-Constraint Weight Profiles ────────────────────────────────────────────
+# Constraints select entirely different weight profiles, not just marginal tweaks.
+# Capacity needs volume + economics to dominate. Compliance almost ignores automation.
 
-CONSTRAINT_WEIGHT_OVERRIDES: dict[str, dict[str, float]] = {
-    "capacity": {"volume_fit": 0.15, "economic_fit": 0.12, "automation_potential": 0.15},
-    "errors": {"automation_potential": 0.18, "exception_fit": 0.13, "risk": 0.10},
-    "speed": {"time_to_value": 0.12, "automation_potential": 0.15, "volume_fit": 0.08},
-    "quality": {"automation_potential": 0.08, "exception_fit": 0.13, "organizational_readiness": 0.10},
-    "cost": {"economic_fit": 0.22, "volume_fit": 0.13, "automation_potential": 0.15},
-    "visibility": {"integration_feasibility": 0.12, "automation_potential": 0.05, "problem_fit": 0.14},
-    "compliance": {"risk": 0.18, "feasibility": 0.10, "automation_potential": 0.06},
-    "unknown": {"problem_fit": 0.12, "evidence_strength": 0.03, "automation_potential": 0.05},
+CONSTRAINT_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
+    "capacity": {
+        "problem_fit": 0.10, "economic_fit": 0.20, "automation_potential": 0.15,
+        "volume_fit": 0.20, "exception_fit": 0.05, "risk": 0.05,
+        "feasibility": 0.05, "organizational_readiness": 0.05,
+        "integration_feasibility": 0.03, "time_to_value": 0.07,
+        "evidence_strength": 0.05,
+    },
+    "errors": {
+        "problem_fit": 0.10, "economic_fit": 0.10, "automation_potential": 0.25,
+        "volume_fit": 0.10, "exception_fit": 0.15, "risk": 0.08,
+        "feasibility": 0.05, "organizational_readiness": 0.05,
+        "integration_feasibility": 0.05, "time_to_value": 0.04,
+        "evidence_strength": 0.03,
+    },
+    "speed": {
+        "problem_fit": 0.10, "economic_fit": 0.12, "automation_potential": 0.20,
+        "volume_fit": 0.10, "exception_fit": 0.08, "risk": 0.05,
+        "feasibility": 0.08, "organizational_readiness": 0.05,
+        "integration_feasibility": 0.05, "time_to_value": 0.14,
+        "evidence_strength": 0.03,
+    },
+    "quality": {
+        "problem_fit": 0.10, "economic_fit": 0.08, "automation_potential": 0.10,
+        "volume_fit": 0.05, "exception_fit": 0.18, "risk": 0.10,
+        "feasibility": 0.08, "organizational_readiness": 0.15,
+        "integration_feasibility": 0.08, "time_to_value": 0.05,
+        "evidence_strength": 0.03,
+    },
+    "cost": {
+        "problem_fit": 0.08, "economic_fit": 0.30, "automation_potential": 0.18,
+        "volume_fit": 0.15, "exception_fit": 0.05, "risk": 0.05,
+        "feasibility": 0.05, "organizational_readiness": 0.03,
+        "integration_feasibility": 0.03, "time_to_value": 0.05,
+        "evidence_strength": 0.03,
+    },
+    "visibility": {
+        "problem_fit": 0.08, "economic_fit": 0.08, "automation_potential": 0.05,
+        "volume_fit": 0.05, "exception_fit": 0.05, "risk": 0.05,
+        "feasibility": 0.15, "organizational_readiness": 0.10,
+        "integration_feasibility": 0.25, "time_to_value": 0.11,
+        "evidence_strength": 0.03,
+    },
+    "compliance": {
+        "problem_fit": 0.10, "economic_fit": 0.05, "automation_potential": 0.03,
+        "volume_fit": 0.03, "exception_fit": 0.05, "risk": 0.30,
+        "feasibility": 0.15, "organizational_readiness": 0.10,
+        "integration_feasibility": 0.10, "time_to_value": 0.06,
+        "evidence_strength": 0.03,
+    },
+    "unknown": {
+        "problem_fit": 0.05, "economic_fit": 0.03, "automation_potential": 0.02,
+        "volume_fit": 0.02, "exception_fit": 0.02, "risk": 0.03,
+        "feasibility": 0.03, "organizational_readiness": 0.03,
+        "integration_feasibility": 0.02, "time_to_value": 0.02,
+        "evidence_strength": 0.75,  # Heavily dependent on evidence when constraint unknown
+    },
 }
 
 
 def get_weights_for_constraint(constraint_type: str) -> dict[str, float]:
-    """Return scoring weights tuned for a specific constraint type."""
-    base = dict(WEIGHTS)
-    overrides = CONSTRAINT_WEIGHT_OVERRIDES.get(constraint_type, {})
-    # Apply overrides and renormalize
-    for dim, w in overrides.items():
-        base[dim] = w
-    total = sum(base.values())
-    return {k: round(v / total, 3) for k, v in base.items()}
+    """Return full scoring weight profile for a constraint type."""
+    profile = CONSTRAINT_WEIGHT_PROFILES.get(constraint_type)
+    if profile:
+        return dict(profile)
+    return CONSTRAINT_WEIGHT_PROFILES["unknown"]
 
 
 # ── Evidence Wiring ───────────────────────────────────────────────────────────
@@ -891,17 +936,38 @@ def get_weights_for_constraint(constraint_type: str) -> dict[str, float]:
 def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                   industry: str = "", employee_count: int = None,
                   desired_outcome: str = "") -> dict:
-    """Wire evidence retrieval into the decision engine output.
+    """Wire evidence into the decision engine output.
 
-    For each candidate intervention, query the evidence database for
-    comparable implementations and update evidence_strength with
-    actual retrieval scores. Also adds observed outcomes for comparison
-    with predicted economics.
+    Evidence acts as a FLOOR, not just a dimension. If fewer than 3 comparable
+    implementations exist, the confidence on the entire recommendation drops.
+    The gap engine is queried to check if this (workflow, function) category
+    has known evidence deficiencies.
     """
+    recommendation_confidence = "high"
+    confidence_limits = []
+
     try:
         from compass_collector.analysis.retrieval import (
             ImplementationQuery, find_comparable_implementations, get_negative_evidence,
         )
+
+        # ── Query gap engine for this category ──
+        try:
+            from compass_agent.evidence_gap import run_gap_engine
+            gap_report = run_gap_engine()
+            gap_categories = gap_report.to_dict().get("needs", [])
+            for need in gap_categories:
+                nw = need.get("workflow", "")
+                nf = need.get("business_function", "")
+                if (nw == workflow or nw in workflow) and nf == business_function:
+                    if need.get("gap_score", 0) > 0.5:
+                        confidence_limits.append({
+                            "source": "gap_engine",
+                            "reason": f"Category ({nw}, {nf}) has weak evidence coverage (gap={need['gap_score']:.2f})",
+                        })
+                    break
+        except Exception:
+            pass  # Gap engine is best-effort
 
         candidates = [decision_result.get("recommended_intervention")] if decision_result.get("recommended_intervention") else []
         candidates.extend(decision_result.get("alternatives_considered", []))
@@ -915,7 +981,6 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
             family_info = INTERVENTION_FAMILIES.get(fid)
             if not family_info: continue
 
-            # Query evidence for this intervention family
             query = ImplementationQuery(
                 workflow=workflow,
                 business_function=business_function,
@@ -931,7 +996,15 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                 top = results["results"][:5]
                 avg_sim = sum(r.get("similarity_score", 0) for r in top) / len(top)
 
-                # Build evidence summaries
+                # ── Evidence as floor: fewer than 3 results → low confidence ──
+                if len(top) < 3:
+                    if candidate == decision_result.get("recommended_intervention"):
+                        recommendation_confidence = "low"
+                    confidence_limits.append({
+                        "source": "evidence_retrieval",
+                        "reason": f"Only {len(top)} comparable implementations found for {fid} (minimum 3 required for confidence)",
+                    })
+
                 evidence_items = []
                 for r in top:
                     evidence_items.append({
@@ -945,7 +1018,6 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                         "independently_verified": r.get("independently_verified", False),
                     })
 
-                # Update evidence strength
                 if "dimensions" in candidate and "evidence_strength" in candidate["dimensions"]:
                     candidate["dimensions"]["evidence_strength"] = {
                         "score": round(avg_sim, 2),
@@ -955,7 +1027,6 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
 
                 candidate["evidence"] = evidence_items
 
-                # Get negative evidence
                 negative = get_negative_evidence(query)
                 if negative:
                     candidate["negative_evidence"] = [
@@ -965,7 +1036,7 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                         for n in negative[:3]
                     ]
 
-                # Recompute overall score with evidence
+                # Recompute overall score with constraint weights
                 if "dimensions" in candidate:
                     dims = candidate["dimensions"]
                     weights = get_weights_for_constraint(
@@ -976,12 +1047,19 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                         for d in dims if d in weights
                     )
                     candidate["overall_score"] = round(overall, 3)
+            else:
+                # Zero evidence for this candidate
+                if candidate == decision_result.get("recommended_intervention"):
+                    recommendation_confidence = "low"
+                confidence_limits.append({
+                    "source": "evidence_retrieval",
+                    "reason": f"No comparable implementations found for {fid}",
+                })
 
-        # Re-sort alternatives by updated overall_score
         alternatives = decision_result.get("alternatives_considered", [])
         alternatives.sort(key=lambda c: -(c.get("overall_score", 0) if c else 0))
 
-        # Observed vs predicted comparison
+        # Observed vs predicted
         rec = decision_result.get("recommended_intervention")
         if rec and rec.get("economics") and rec.get("evidence"):
             observed_savings = []
@@ -996,93 +1074,159 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                     "sample_size": len(observed_savings),
                 }
 
-        # Add counterfactual rationale
-        decision_result["counterfactual_rationale"] = _generate_counterfactual(decision_result)
+        # Counterfactual rationale with actual numbers
+        decision_result["counterfactual_rationale"] = _generate_counterfactual(
+            decision_result,
+            volume=decision_result.get("problem", {}).get("annual_volume"),
+            labor_rate=None,  # populated from economics
+        )
+
+        # ── Evidence floor: apply to overall confidence ──
+        decision_result["recommendation_confidence"] = recommendation_confidence
+        decision_result["confidence_limits"] = confidence_limits
 
     except Exception:
-        pass  # Evidence wiring is best-effort, don't block the decision
+        pass
 
     return decision_result
 
 
-def _generate_counterfactual(decision_result: dict) -> dict:
+def _generate_counterfactual(decision_result: dict, volume: float = None,
+                              labor_rate: float = None) -> dict:
     """Generate natural-language rationale explaining why the recommended
-    intervention beats each alternative on specific dimensions."""
+    intervention beats each alternative, using actual assessment numbers."""
     rec = decision_result.get("recommended_intervention")
     alts = decision_result.get("alternatives_considered", [])
+    problem = decision_result.get("problem", {})
 
     if not rec or not alts:
         return {"summary": "No alternatives to compare."}
 
+    constraint = problem.get("constraint_type", "unknown")
+    rec_name = rec.get("family_name", "")
+    rec_econ = rec.get("economics", {})
+
     comparisons = []
     for alt in alts[:3]:
         if not alt: continue
+        alt_name = alt.get("family_name", "")
+        alt_econ = alt.get("economics", {})
         rec_dims = rec.get("dimensions", {})
         alt_dims = alt.get("dimensions", {})
 
-        # Find dimensions where recommended beats alternative
+        # Find where recommended wins
         wins = []
-        for dim in ["problem_fit", "economic_fit", "volume_fit", "automation_potential", "risk"]:
-            rec_score = rec_dims.get(dim, {}).get("score", 0)
-            alt_score = alt_dims.get(dim, {}).get("score", 0)
-            if rec_score > alt_score + 0.05:
-                wins.append({
-                    "dimension": dim,
-                    "recommended": round(rec_score, 2),
-                    "alternative": round(alt_score, 2),
-                    "margin": round(rec_score - alt_score, 2),
-                })
+        for dim in ["problem_fit", "economic_fit", "volume_fit", "automation_potential", "risk", "time_to_value"]:
+            rs = rec_dims.get(dim, {}).get("score", 0)
+            als = alt_dims.get(dim, {}).get("score", 0)
+            if rs > als + 0.05:
+                wins.append({"dimension": dim, "recommended": round(rs, 2), "alternative": round(als, 2)})
 
         loses = []
-        for dim in ["economic_fit", "feasibility", "risk", "time_to_value"]:
-            rec_score = rec_dims.get(dim, {}).get("score", 0)
-            alt_score = alt_dims.get(dim, {}).get("score", 0)
-            if alt_score > rec_score + 0.05:
-                loses.append({
-                    "dimension": dim,
-                    "recommended": round(rec_score, 2),
-                    "alternative": round(alt_score, 2),
-                    "deficit": round(alt_score - rec_score, 2),
-                })
+        for dim in ["feasibility", "risk", "time_to_value", "organizational_readiness"]:
+            rs = rec_dims.get(dim, {}).get("score", 0)
+            als = alt_dims.get(dim, {}).get("score", 0)
+            if als > rs + 0.05:
+                loses.append({"dimension": dim, "recommended": round(rs, 2), "alternative": round(als, 2)})
 
-        # Generate rationale
-        rationale_parts = []
-        if wins:
-            top_win = max(wins, key=lambda w: w["margin"])
-            rationale_parts.append(
-                f"{rec['family_name']} is recommended over {alt['family_name']} "
-                f"because it better addresses the constraint ({top_win['dimension']}: "
-                f"{top_win['recommended']} vs {top_win['alternative']})"
-            )
-        if loses:
-            top_loss = max(loses, key=lambda l: l["deficit"])
-            rationale_parts.append(
-                f"However, {alt['family_name']} has an advantage in {top_loss['dimension']} "
-                f"({top_loss['alternative']} vs {top_loss['recommended']}). "
-                f"Consider if {top_loss['dimension']} is more important than the primary constraint."
-            )
+        # Build intelligent rationale with actual numbers
+        parts = []
+
+        # Economic comparison
+        if rec_econ and alt_econ:
+            rec_savings = rec_econ.get("expected_annual_savings", 0)
+            alt_savings = alt_econ.get("expected_annual_savings", 0)
+            rec_payback = rec_econ.get("payback_months")
+            alt_payback = alt_econ.get("payback_months")
+
+            if rec_savings and alt_savings and rec_savings > alt_savings:
+                diff = rec_savings - alt_savings
+                parts.append(
+                    f"{rec_name} saves ${diff:,.0f}/year more than {alt_name} "
+                    f"(${rec_savings:,.0f} vs ${alt_savings:,.0f})"
+                )
+            if rec_payback and alt_payback and rec_payback < alt_payback:
+                parts.append(
+                    f"and pays back in {rec_payback:.0f} months vs {alt_payback:.0f} months"
+                )
+
+        # Constraint-specific rationale
+        if constraint == "capacity" and volume:
+            if rec_name == "AI Implementation" and alt_name == "Staffing Change":
+                parts.append(
+                    f"At {volume:,.0f} items/year, AI scales without adding headcount "
+                    f"while staffing costs grow linearly with volume"
+                )
+            elif rec_name == "Staffing Change" and alt_name == "AI Implementation":
+                parts.append(
+                    f"At only {volume:,.0f} items/year, the volume is too low to justify "
+                    f"AI setup costs — additional staffing is more cost-effective"
+                )
+
+        if constraint == "cost":
+            if rec_econ and alt_econ:
+                rec_roi = rec_econ.get("three_year_roi", 0)
+                alt_roi = alt_econ.get("three_year_roi", 0)
+                if rec_roi and alt_roi and rec_roi > alt_roi:
+                    parts.append(
+                        f"{rec_name} delivers {rec_roi:.0f}× 3-year ROI vs {alt_roi:.0f}× for {alt_name}"
+                    )
+
+        if constraint == "errors":
+            rec_auto = rec_dims.get("automation_potential", {}).get("score", 0)
+            alt_auto = alt_dims.get("automation_potential", {}).get("score", 0)
+            if rec_auto > alt_auto:
+                parts.append(
+                    f"{rec_name} is better suited for error reduction because it "
+                    f"eliminates manual variation — automation potential {rec_auto:.0%} vs {alt_auto:.0%}"
+                )
+
+        # Risk comparison
+        if constraint == "compliance":
+            rec_risk = rec_dims.get("risk", {}).get("score", 0)
+            alt_risk = alt_dims.get("risk", {}).get("score", 0)
+            if rec_risk > alt_risk:
+                parts.append(
+                    f"{rec_name} has lower compliance risk ({rec_risk:.0%} risk tolerance "
+                    f"vs {alt_risk:.0%}), critical for regulated environments"
+                )
+
+        rationale = ". ".join(parts) + "." if parts else (
+            f"{rec_name} scores higher overall than {alt_name} "
+            f"({rec.get('overall_score', 0):.2f} vs {alt.get('overall_score', 0):.2f})"
+        )
 
         comparisons.append({
-            "alternative": alt["family_name"],
+            "alternative": alt_name,
             "recommended_wins": wins,
             "recommended_loses": loses,
-            "rationale": " ".join(rationale_parts),
+            "rationale": rationale,
         })
 
     # Overall summary
-    summary = (
-        f"{rec['family_name']} is the recommended intervention for this {decision_result.get('problem', {}).get('constraint', 'unknown')} "
-        f"constraint. "
-    )
+    summary_parts = [f"{rec_name} is the recommended intervention for this {constraint} constraint."]
+
     if comparisons:
-        alts_names = [c["alternative"] for c in comparisons]
-        summary += f"Alternatives considered: {', '.join(alts_names)}. "
-        if any(c["recommended_wins"] for c in comparisons):
-            top_dim = comparisons[0]["recommended_wins"][0]["dimension"] if comparisons[0].get("recommended_wins") else ""
-            summary += f"The primary differentiator is {top_dim}."
+        summary_parts.append(f"Alternatives considered: {', '.join(c['alternative'] for c in comparisons)}.")
+
+    if rec_econ:
+        savings = rec_econ.get("expected_annual_savings")
+        payback = rec_econ.get("payback_months")
+        if savings:
+            summary_parts.append(f"Expected annual savings: ${savings:,.0f}.")
+        if payback:
+            summary_parts.append(f"Payback: {payback:.0f} months.")
+
+    # Contraindications warning
+    contras = rec.get("contraindications_triggered", [])
+    if contras:
+        summary_parts.append(
+            f"⚠ Note: {len(contras)} contraindications are triggered — "
+            f"verify these conditions before proceeding."
+        )
 
     return {
-        "summary": summary,
+        "summary": " ".join(summary_parts),
         "per_alternative": comparisons,
     }
 
@@ -1097,19 +1241,30 @@ def decide_with_evidence(
     employee_count: int = None,
     desired_outcome: str = "",
 ) -> dict:
-    """Full decision pipeline: generate candidates → score → compare → wire evidence.
+    """Full decision pipeline with evidence, gap analysis, and versioning.
 
-    This is the main entry point for the multi-intervention decision model.
-    It generates candidates BEFORE querying evidence, scores each independently,
-    then wires evidence retrieval into the result for evidence_strength scoring
-    and observed vs predicted outcome comparison.
+    Generates candidates BEFORE querying evidence, scores each independently,
+    wires evidence retrieval, queries the gap engine, and produces a fully
+    traceable decision object.
     """
+    import subprocess, os
+    from datetime import datetime, timezone
+
+    # ── Engine version from git ──
+    engine_version = "decision-v1"
+    try:
+        engine_version = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            text=True,
+        ).strip()
+    except Exception:
+        pass
+
     engine = DecisionEngine(assessment)
 
     # Use per-constraint weights
     constraint_weights = get_weights_for_constraint(assessment.constraint)
-    # Override default weights in the engine
-    global WEIGHTS
     saved = dict(WEIGHTS)
     for dim in WEIGHTS:
         if dim in constraint_weights:
@@ -1131,7 +1286,28 @@ def decide_with_evidence(
         desired_outcome=desired_outcome or assessment.desired_outcome,
     )
 
-    decision["methodology"]["weights_used"] = constraint_weights
-    decision["methodology"]["weights_tuned_for"] = assessment.constraint
+    # ── Full decision trace for reproducibility ──
+    decision["methodology"] = {
+        "engine_version": engine_version,
+        "engine_name": "decision-v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "weights_used": constraint_weights,
+        "weights_tuned_for": assessment.constraint,
+        "candidates_generated_from": f"constraint={assessment.constraint}",
+        "dimensions_scored": list(constraint_weights.keys()),
+        "evidence_independent": "Candidates generated before evidence lookup",
+        "evidence_as_floor": "Recommendation confidence drops to 'low' if fewer than 3 comparable implementations exist",
+        "gap_engine_connected": True,
+        "assessment_input": {
+            "workflow": assessment.workflow,
+            "business_function": assessment.business_function,
+            "constraint": assessment.constraint,
+            "standardization": assessment.standardization_level,
+            "failure_impact": assessment.failure_impact,
+            "annual_volume": assessment.annual_workflow_volume,
+            "budget_range": assessment.budget_range,
+            "desired_outcome": assessment.desired_outcome,
+        },
+    }
 
     return decision

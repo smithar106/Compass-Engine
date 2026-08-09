@@ -6,6 +6,7 @@ class InvestigationRequest(BaseModel):
     business_function: str = ""
     workflow: str = ""
     problem_statement: str = ""
+    constraint: str = ""  # capacity, errors, speed, quality, cost, visibility, compliance, unknown
     industry: str = ""
     company_size: str = ""
     workflow_frequency: str = ""
@@ -22,6 +23,8 @@ class InvestigationRequest(BaseModel):
     geography: str = ""
     constraints: list[str] = []
     implementation_capacity: str = ""
+    standardization_level: str = ""  # repeatable, with_exceptions, variable, heavy_judgment
+    failure_impact: str = ""  # low, moderate, material, regulatory
     # Organization-specific impact inputs (collected by the assessment).
     annual_workflow_volume: str = ""
     current_handling_time: str = ""
