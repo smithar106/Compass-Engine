@@ -985,7 +985,10 @@ class DecisionEngine:
 
         # Estimate implementation cost from the implementation path (canonical source),
         # not from the generic family midpoint.
-        path = self._build_implementation_path(None)  # placeholder candidate
+        path = self._build_implementation_path(InterventionCandidate(
+            family_id=family.id, family_name=family.name,
+            scores={}, overall_score=0, economics=None,
+        ))
         impl_cost = 50000  # fallback
         if path:
             path_costs = []
