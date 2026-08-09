@@ -985,6 +985,7 @@ class DecisionEngine:
 
         # Estimate implementation cost from the implementation path (canonical source),
         # not from the generic family midpoint.
+        import re
         path = self._build_implementation_path(InterventionCandidate(
             family_id=family.id, family_name=family.name,
             scores={}, overall_score=0, economics=None,
