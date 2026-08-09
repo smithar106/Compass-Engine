@@ -595,7 +595,7 @@ class DecisionEngine:
                         f"Report to executive sponsor: {family.labor_reduction_pct[0]}–{family.labor_reduction_pct[1]}% labor reduction target vs actual",
                         "Set quarterly automation expansion roadmap",
                     ],
-                    "success_criteria": f"ROI positive within {candidate.economics.payback_months:.0f} months. Automation expanded to ≥1 adjacent workflow. Executive sign-off on Phase 2.",
+                    "success_criteria": f"ROI positive within {candidate.economics.payback_months:.0f} months. Automation expanded to ≥1 adjacent workflow. Executive sign-off on Phase 2." if candidate and candidate.economics and candidate.economics.payback_months else "ROI positive. Automation expanded to ≥1 adjacent workflow. Executive sign-off on Phase 2.",
                     "cost": "Ongoing platform cost: $5K–15K/year. Optimization: internal labor.",
                 },
             ]
