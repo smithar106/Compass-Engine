@@ -985,28 +985,42 @@ class DecisionEngine:
 
         # Estimate implementation cost from the implementation path (canonical source),
         # not from the generic family midpoint.
+        # Exclude ongoing/annual costs (phases with "/year") — only one-time implementation costs.
         import re
         path = self._build_implementation_path(InterventionCandidate(
             family_id=family.id, family_name=family.name,
             scores={}, overall_score=0, economics=None,
         ))
         impl_cost = 50000  # fallback
+        annual_op_cost = 0
         if path:
             path_costs = []
             for step in path:
                 cost_str = step.get("cost", "$5K")
-                nums = re.findall(r'[\d,]+', cost_str.replace('K', '000').replace('M', '000000'))
+                # Separate one-time from ongoing costs
+                is_ongoing = "/year" in cost_str.lower() or "/yr" in cost_str.lower() or "ongoing" in cost_str.lower()
+                cost_str_clean = cost_str.replace('K', '000').replace('M', '000000')
+                nums = re.findall(r'[\d,]+', cost_str_clean)
                 cost_nums = [int(n.replace(',', '')) for n in nums]
-                # Take the midpoint of the range, or the single value
                 if cost_nums:
-                    path_costs.append(sum(cost_nums) / len(cost_nums))
+                    midpoint = sum(cost_nums) / len(cost_nums)
+                    if is_ongoing:
+                        annual_op_cost += midpoint
+                    else:
+                        path_costs.append(midpoint)
             if path_costs:
                 impl_cost = sum(path_costs)
 
-        annual_op = impl_cost * 0.15  # ~15% annual operating cost
+        annual_op = max(annual_op_cost, impl_cost * 0.15)  # Use explicit annual cost if available, else 15%
 
         net_annual = expected_savings - annual_op
-        payback = (impl_cost / net_annual * 12) if net_annual > 0 else float('inf')
+        # Conservative payback: assume 50% savings in first month (ramp-up)
+        payback = (impl_cost / (net_annual * 0.5) * 12) if net_annual > 0 else float('inf')
+
+        net_annual = expected_savings - annual_op
+        # Conservative payback: assume 50% savings in first month (ramp-up)
+        payback = (impl_cost / (net_annual * 0.5) * 12) if net_annual > 0 else float('inf')
+
         three_year = (net_annual * 3 - impl_cost) / max(impl_cost, 1)
 
         return InterventionEconomics(
@@ -1026,9 +1040,9 @@ class DecisionEngine:
                 f"Loaded cost: ${rate:,.0f}/hour",
                 f"Current annual labor: ${current_annual:,.0f} (volume × handling time × loaded cost)",
                 f"Automatable: {automatable*100:.0f}% (labor reduction {family.labor_reduction_pct[1]}% × (1 - {except_pct:.0%} exceptions))",
-                f"Implementation cost: ${impl_cost:,.0f} (derived from 5-phase implementation plan)",
-                f"Annual operating cost: ${annual_op:,.0f} (15% of implementation cost)",
-                f"Payback: {round(payback, 1)} months = round(implementation_cost / net_annual_savings × 12)",
+                f"Implementation cost: ${impl_cost:,.0f} (from 5-phase implementation plan — canonical source)",
+                f"Annual operating cost: ${annual_op:,.0f}",
+                f"Payback: ~{round(payback, 1)} months (assumes 50% savings ramp-up in first month, rounded up for conservative display)",
                 f"3-year ROI: {round(three_year, 0)}× = (3 × annual_savings - impl_cost - 3 × annual_op) / impl_cost",
             ],
         )
