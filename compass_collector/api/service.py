@@ -1535,6 +1535,7 @@ def _build_recommendations(
 
 def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = None) -> RecommendationResponse:
     from compass_collector.analysis.recommendation import recommend
+    from compass_collector.analysis.decision_engine import DecisionEngine, AssessmentInput
     from compass_collector.analysis.candidate_retrieval import retrieve_candidates
     from compass_collector.analysis.scoring_ranking import rank_interventions
     from compass_collector.config.scoring_weights import get_scoring_config
@@ -1545,6 +1546,47 @@ def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = 
     employee_count = _parse_company_size(req.company_size)
     desired_outcome = req.desired_outcome or "efficiency"
 
+    # ── Decision Engine path (constraint-aware) ──
+    constraint = getattr(req, 'constraint', '') or ''
+    decision_result = None
+
+    if constraint:
+        try:
+            from compass_collector.analysis.decision_engine import decide_with_evidence, AssessmentInput
+
+            assessment = AssessmentInput(
+                business_function=business_function,
+                workflow=workflow,
+                problem_statement=req.problem_statement or "",
+                constraint=constraint,
+                industry=industry,
+                workflow_frequency=req.workflow_frequency or "",
+                people_involved=req.people_involved or "",
+                handoffs=req.handoffs or "",
+                exception_rate=req.exception_rate or "",
+                budget_range=req.budget_range or "",
+                implementation_timeline=req.implementation_timeline or "",
+                business_risk=req.business_risk or "",
+                process_stability=req.process_stability or "",
+                desired_outcome=desired_outcome,
+                annual_workflow_volume=_safe_float(req.annual_workflow_volume),
+                current_handling_time=_safe_float(req.current_handling_time),
+                loaded_labor_cost=_safe_float(req.loaded_labor_cost),
+                standardization_level=getattr(req, 'standardization_level', '') or '',
+                failure_impact=getattr(req, 'failure_impact', '') or '',
+            )
+            decision_result = decide_with_evidence(
+                assessment,
+                workflow=workflow,
+                business_function=business_function,
+                industry=industry,
+                employee_count=employee_count,
+                desired_outcome=desired_outcome,
+            )
+        except Exception:
+            pass
+
+    # ── Legacy recommendation (evidence-first, used when no constraint) ──
     engine_result = recommend(
         workflow=workflow,
         business_function=business_function,
@@ -1603,7 +1645,7 @@ def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = 
     response = RecommendationResponse(
         recommendation_id=run_id,
         status="complete",
-        engine_version="3.1.0",
+        engine_version="3.2.0",
         dataset_version="v3",
         generated_at=now.isoformat(),
         assessment_summary=assessment_summary,
@@ -1615,6 +1657,7 @@ def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = 
             "evidence_count": overall_conf.get("breakdown", {}),
             "overall_confidence": overall_conf.get("score", 0),
             "summary": overall_conf.get("summary", ""),
+            "decision_model": decision_result,
         },
         methodology_summary=method_summary,
         assumptions=top_rec.assumptions_detail if top_rec else [],
@@ -1651,6 +1694,16 @@ def _infer_workflow(business_function: str) -> str:
         "operations": "process_automation",
     }
     return mapping.get(business_function.lower(), "process_automation")
+
+
+def _safe_float(val) -> Optional[float]:
+    """Convert to float if possible, else None."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_company_size(size_str: str) -> Optional[int]:

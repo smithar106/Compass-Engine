@@ -1,0 +1,1137 @@
+"""Multi-intervention decision engine for Compass.
+
+Replaces the evidence-first recommendation model with a constraint-aware,
+multi-dimensional decision architecture that generates intervention candidates
+BEFORE querying evidence, then scores each independently across 11 dimensions.
+
+Architecture:
+    Problem → Workflow → Constraint → Intervention Candidates
+    → Score (problem_fit, economics, automation_potential, risk, feasibility,
+            organizational_readiness, evidence_strength, volume_fit,
+            exception_fit, integration_feasibility, time_to_value)
+    → Rank → Return alternatives with contraindications
+
+This prevents survivorship bias: the intervention with the most published
+evidence does not automatically win. Evidence is one dimension, not the
+entire decision.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional
+import json
+
+
+# ── Intervention Families ────────────────────────────────────────────────────
+
+@dataclass
+class InterventionFamily:
+    id: str
+    name: str
+    description: str
+    typical_cost_range: str  # e.g. "$50K–500K"
+    typical_timeline: str     # e.g. "6–12 weeks"
+    labor_reduction_pct: tuple[float, float]  # (low, high)
+    contraindications: list[str]  # conditions where this shouldn't be used
+    good_when: list[str]
+    subtypes: list[str] = field(default_factory=list)
+
+
+INTERVENTION_FAMILIES: dict[str, InterventionFamily] = {
+    "AI": InterventionFamily(
+        id="AI",
+        name="AI Implementation",
+        description="Artificial intelligence, machine learning, NLP, computer vision, or generative AI",
+        typical_cost_range="$80K–2M",
+        typical_timeline="8–24 weeks",
+        labor_reduction_pct=(45, 85),
+        contraindications=[
+            "Very low volume (fewer than ~500 items/month)",
+            "Extremely high-value interactions where error cost exceeds $100K",
+            "Heavy emotional sensitivity or grief counseling",
+            "Complex regulatory requirements without explainability",
+            "Poor source data quality (incomplete, inconsistent, unlabeled)",
+            "Highly variable conversations with no predictable intent patterns",
+        ],
+        good_when=[
+            "High volume, repeatable interactions",
+            "Predictable intent or classification task",
+            "Measurable conversion or outcome metrics",
+            "Human escalation path available for edge cases",
+            "Existing training data or ability to generate it",
+            "Error cost is moderate and recoverable",
+        ],
+        subtypes=["generative_ai", "predictive_ai", "ai_assisted_work", "autonomous_ai",
+                   "human_in_the_loop_ai", "machine_learning", "nlp", "computer_vision"],
+    ),
+    "Software": InterventionFamily(
+        id="Software",
+        name="Software Implementation",
+        description="New software adoption, platform migration, or optimization of existing systems",
+        typical_cost_range="$30K–500K",
+        typical_timeline="4–16 weeks",
+        labor_reduction_pct=(25, 60),
+        contraindications=[
+            "Process is not standardized enough for software to model",
+            "Team lacks technical capacity to adopt new tools",
+            "No clear process owner who can champion adoption",
+            "Budget below $25K for anything beyond basic SaaS",
+        ],
+        good_when=[
+            "Process is standardized and documented",
+            "Team is technically capable or willing to learn",
+            "Clear process owner exists",
+            "Integration with existing systems is feasible",
+            "Vendor ecosystem exists for this workflow",
+        ],
+        subtypes=["new_software_implementation", "existing_software_optimization",
+                   "cloud_migration", "crm_implementation", "erp_implementation"],
+    ),
+    "Workflow_Automation": InterventionFamily(
+        id="Workflow_Automation",
+        name="Workflow Automation",
+        description="RPA, workflow tools, or rules-based automation of repetitive processes",
+        typical_cost_range="$20K–300K",
+        typical_timeline="4–12 weeks",
+        labor_reduction_pct=(40, 90),
+        contraindications=[
+            "Process changes frequently (reshaping automation is expensive)",
+            "Too many exceptions requiring human judgment",
+            "Very low volume where automation ROI doesn't justify setup cost",
+            "Process relies on systems that change their UI frequently",
+            "No clear, documented standard operating procedure",
+        ],
+        good_when=[
+            "High volume, rule-based, repeatable process",
+            "Process is stable and well-documented",
+            "Clear inputs and outputs with minimal ambiguity",
+            "Systems have stable APIs or consistent UIs",
+            "Exception rate is below 30%",
+        ],
+        subtypes=["rpa", "workflow_automation", "rules_based_automation",
+                   "robotic_process_automation", "workflow_simplification"],
+    ),
+    "Process_Redesign": InterventionFamily(
+        id="Process_Redesign",
+        name="Process Redesign",
+        description="Fundamental redesign of operational processes to improve efficiency",
+        typical_cost_range="$40K–1M",
+        typical_timeline="8–24 weeks",
+        labor_reduction_pct=(20, 50),
+        contraindications=[
+            "Process is already highly optimized",
+            "Organization lacks authority to change cross-functional processes",
+            "Timeline is too aggressive for organizational change",
+            "No executive sponsor with decision authority",
+        ],
+        good_when=[
+            "Current process has obvious waste or redundancy",
+            "Multiple handoffs causing delays and errors",
+            "Cross-functional process with conflicting incentives",
+            "Executive sponsor committed to change",
+            "Organization has change management capability",
+        ],
+        subtypes=["process_redesign", "lean", "business_process_reengineering",
+                   "organizational_restructuring"],
+    ),
+    "Staffing": InterventionFamily(
+        id="Staffing",
+        name="Staffing Change",
+        description="Changes to team structure, hiring, training, or outsourcing",
+        typical_cost_range="$30K–300K/year",
+        typical_timeline="2–8 weeks",
+        labor_reduction_pct=(-20, 30),  # Can increase costs initially
+        contraindications=[
+            "Hiring market is extremely tight for required skills",
+            "Marginal cost of additional staff exceeds automation cost",
+            "Outsourcing would compromise quality or compliance requirements",
+            "Process requires deep institutional knowledge",
+        ],
+        good_when=[
+            "Volume is too low for automation ROI",
+            "Work requires significant human judgment",
+            "Process is highly variable with many exceptions",
+            "Quality or compliance requires human oversight",
+            "Customer relationship is core to value",
+        ],
+        subtypes=["staffing_increases", "staffing_reallocation", "outsourcing",
+                   "training", "managed_services"],
+    ),
+    "Hybrid": InterventionFamily(
+        id="Hybrid",
+        name="Hybrid Intervention",
+        description="Combination of AI + human, automation + process redesign, or multi-modal",
+        typical_cost_range="$100K–3M",
+        typical_timeline="12–36 weeks",
+        labor_reduction_pct=(30, 70),
+        contraindications=[
+            "Organization lacks maturity to manage multi-modal change",
+            "Budget or timeline constraints preclude phased approach",
+            "No clear owner for the integrated solution",
+        ],
+        good_when=[
+            "Complex process with both automatable and judgment-intensive steps",
+            "Organization has experience with both technology and process change",
+            "Phased approach is acceptable",
+            "Multiple stakeholders require different intervention types",
+            "Risk of pure automation is too high without human oversight",
+        ],
+        subtypes=["hybrid_combination", "ai_human_collaboration", "augmented_workflow"],
+    ),
+    "No_Action": InterventionFamily(
+        id="No_Action",
+        name="No Action / Establish Baseline",
+        description="Do not implement yet — establish the baseline before selecting an intervention",
+        typical_cost_range="$0–10K",
+        typical_timeline="2–4 weeks",
+        labor_reduction_pct=(0, 0),
+        contraindications=["Urgent regulatory or safety requirement"],
+        good_when=[
+            "Current volume, cost, or exception rate is unknown or estimated",
+            "No clear problem owner or executive sponsor",
+            "Multiple plausible constraints with no clear root cause",
+            "Recent organizational change makes current state uncertain",
+            "The cost of the wrong intervention exceeds the cost of measurement",
+        ],
+        subtypes=[],
+    ),
+}
+
+
+# ── Constraint Types ─────────────────────────────────────────────────────────
+
+@dataclass
+class ConstraintProfile:
+    """What is preventing the workflow from performing better?"""
+    primary: str  # capacity, errors, speed, quality, cost, visibility, compliance
+    secondary: list[str] = field(default_factory=list)
+    description: str = ""
+
+
+CONSTRAINT_MAP: dict[str, dict] = {
+    "capacity": {
+        "label": "Insufficient capacity",
+        "description": "Cannot handle current or projected volume with existing resources",
+        "intervention_weights": {"Staffing": 0.9, "AI": 0.85, "Workflow_Automation": 0.8,
+                                  "Hybrid": 0.75, "Process_Redesign": 0.5, "Software": 0.4},
+    },
+    "errors": {
+        "label": "Too many errors",
+        "description": "High error rate, rework, or quality issues in the process",
+        "intervention_weights": {"AI": 0.85, "Workflow_Automation": 0.9, "Software": 0.7,
+                                  "Process_Redesign": 0.6, "Hybrid": 0.75, "Staffing": 0.3},
+    },
+    "speed": {
+        "label": "Too slow",
+        "description": "Process takes too long, causing delays, missed SLAs, or customer dissatisfaction",
+        "intervention_weights": {"Workflow_Automation": 0.9, "AI": 0.8, "Software": 0.7,
+                                  "Process_Redesign": 0.75, "Staffing": 0.6, "Hybrid": 0.8},
+    },
+    "quality": {
+        "label": "Inconsistent quality",
+        "description": "Output quality varies significantly between team members or over time",
+        "intervention_weights": {"AI": 0.8, "Software": 0.75, "Process_Redesign": 0.7,
+                                  "Workflow_Automation": 0.65, "Training": 0.6, "Hybrid": 0.75},
+    },
+    "cost": {
+        "label": "Too expensive",
+        "description": "Current process cost is unsustainable or exceeds benchmarks",
+        "intervention_weights": {"Workflow_Automation": 0.9, "AI": 0.85, "Software": 0.7,
+                                  "Process_Redesign": 0.6, "Staffing": -0.2, "Hybrid": 0.8},
+    },
+    "visibility": {
+        "label": "Lack of visibility",
+        "description": "Cannot track, measure, or report on process performance",
+        "intervention_weights": {"Software": 0.95, "AI": 0.6, "Process_Redesign": 0.5,
+                                  "Workflow_Automation": 0.4, "Staffing": 0.1},
+    },
+    "compliance": {
+        "label": "Compliance or regulatory risk",
+        "description": "Process creates regulatory, legal, or compliance exposure",
+        "intervention_weights": {"Software": 0.85, "AI": 0.5, "Workflow_Automation": 0.7,
+                                  "Process_Redesign": 0.6, "Staffing": 0.4, "Hybrid": 0.6},
+    },
+    "unknown": {
+        "label": "Unclear / needs diagnosis",
+        "description": "Root cause is not yet identified — establish baseline first",
+        "intervention_weights": {"No_Action": 0.95, "Process_Redesign": 0.4},
+    },
+}
+
+
+# ── Assessment Input ──────────────────────────────────────────────────────────
+
+@dataclass
+class AssessmentInput:
+    business_function: str
+    workflow: str
+    problem_statement: str
+    constraint: str = "unknown"
+    industry: str = ""
+    company_size: str = ""
+    workflow_frequency: str = ""
+    people_involved: str = ""
+    handoffs: str = ""
+    exception_rate: str = ""
+    budget_range: str = ""
+    implementation_timeline: str = ""
+    business_risk: str = ""
+    process_stability: str = ""
+    desired_outcome: str = ""
+    annual_workflow_volume: Optional[float] = None
+    current_handling_time: Optional[float] = None
+    loaded_labor_cost: Optional[float] = None
+    standardization_level: str = "unknown"  # repeatable / with_exceptions / variable / heavy_judgment
+    failure_impact: str = "unknown"  # low / moderate / material / regulatory
+
+
+# ── Scoring Dimensions ────────────────────────────────────────────────────────
+
+@dataclass
+class DimensionScore:
+    score: float  # 0.0 to 1.0
+    confidence: float
+    rationale: str
+
+
+@dataclass
+class InterventionCandidate:
+    family_id: str
+    family_name: str
+    scores: dict[str, DimensionScore]  # dimension_name → score
+    overall_score: float  # weighted composite
+    economics: Optional["InterventionEconomics"] = None
+    contraindications_triggered: list[str] = field(default_factory=list)
+    evidence: list[dict] = field(default_factory=list)
+    negative_evidence: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class InterventionEconomics:
+    current_annual_labor_cost: float
+    automatable_pct: float
+    expected_annual_savings: float
+    implementation_cost_estimate: float
+    annual_operating_cost: float
+    payback_months: float
+    three_year_roi: float
+    conservative_savings: float
+    expected_savings: float
+    upside_savings: float
+    assumptions: list[str]
+
+
+# ── Decision Engine ───────────────────────────────────────────────────────────
+
+WEIGHTS = {
+    "problem_fit": 0.18,
+    "economic_fit": 0.16,
+    "automation_potential": 0.12,
+    "volume_fit": 0.10,
+    "exception_fit": 0.08,
+    "risk": 0.08,
+    "feasibility": 0.07,
+    "organizational_readiness": 0.06,
+    "integration_feasibility": 0.05,
+    "time_to_value": 0.05,
+    "evidence_strength": 0.05,
+}
+
+
+class DecisionEngine:
+    """Multi-intervention decision engine for Compass.
+
+    Generates intervention candidates BEFORE querying evidence,
+    scores each independently across 11 dimensions, compares
+    alternatives, and returns ranked recommendations with
+    contraindications and bottom-up economics.
+    """
+
+    def __init__(self, assessment: AssessmentInput):
+        self.assessment = assessment
+        self.constraint = CONSTRAINT_MAP.get(
+            assessment.constraint,
+            CONSTRAINT_MAP["unknown"]
+        )
+
+    def generate_candidates(self) -> list[str]:
+        """Generate plausible intervention families based on problem + constraint.
+
+        This runs BEFORE evidence lookup to prevent survivorship bias.
+        """
+        weights = self.constraint.get("intervention_weights", {})
+        candidates = []
+
+        for family_id, weight in weights.items():
+            if weight > 0.3 and family_id in INTERVENTION_FAMILIES:
+                candidates.append(family_id)
+
+        # Always include the top 3, even if weights are low
+        sorted_by_weight = sorted(weights.items(), key=lambda x: -x[1])
+        for fid, _ in sorted_by_weight:
+            if fid not in candidates and fid in INTERVENTION_FAMILIES:
+                candidates.append(fid)
+            if len(candidates) >= 6:
+                break
+
+        if not candidates:
+            # Fallback: all families
+            candidates = list(INTERVENTION_FAMILIES.keys())
+
+        return candidates
+
+    def score_candidate(self, family_id: str) -> InterventionCandidate:
+        """Score an intervention candidate across all dimensions."""
+        family = INTERVENTION_FAMILIES.get(family_id)
+        if not family:
+            return None
+
+        scores = {}
+        contraindications_triggered = []
+
+        a = self.assessment
+
+        # 1. Problem fit — does this intervention address the constraint?
+        pf = self._score_problem_fit(family_id)
+        scores["problem_fit"] = pf
+
+        # 2. Economic fit — can expected benefit justify cost?
+        ef = self._score_economic_fit(family)
+        scores["economic_fit"] = ef
+
+        # 3. Automation potential — how repeatable is the work?
+        ap = self._score_automation_potential(family)
+        scores["automation_potential"] = ap
+
+        # 4. Volume fit — is there enough repetition/scale?
+        vf = self._score_volume_fit(family)
+        scores["volume_fit"] = vf
+
+        # 5. Exception fit — how much falls outside the happy path?
+        exf = self._score_exception_fit(family)
+        scores["exception_fit"] = exf
+
+        # 6. Risk — what happens when it fails?
+        risk = self._score_risk(family)
+        scores["risk"] = risk
+
+        # 7. Feasibility — can this organization deploy it?
+        feas = self._score_feasibility(family)
+        scores["feasibility"] = feas
+
+        # 8. Organizational readiness
+        org = self._score_organizational_readiness(family)
+        scores["organizational_readiness"] = org
+
+        # 9. Integration feasibility
+        integ = self._score_integration_feasibility(family)
+        scores["integration_feasibility"] = integ
+
+        # 10. Time to value
+        ttv = self._score_time_to_value(family)
+        scores["time_to_value"] = ttv
+
+        # 11. Evidence strength — placeholder, filled after evidence lookup
+        scores["evidence_strength"] = DimensionScore(
+            score=0.5, confidence=0.0,
+            rationale="Evidence score computed after retrieval"
+        )
+
+        # Check contraindications
+        contraindications_triggered = self._check_contraindications(family)
+
+        # Compute weighted overall
+        overall = sum(
+            WEIGHTS.get(dim, 0) * scores[dim].score
+            for dim in scores
+        )
+
+        # Calculate bottom-up economics
+        economics = self._calculate_economics(family) if a.annual_workflow_volume else None
+
+        return InterventionCandidate(
+            family_id=family_id,
+            family_name=family.name,
+            scores=scores,
+            overall_score=round(overall, 3),
+            economics=economics,
+            contraindications_triggered=contraindications_triggered,
+        )
+
+    def decide(self) -> dict:
+        """Full decision pipeline: generate → score → compare → return."""
+        candidates = self.generate_candidates()
+
+        scored = []
+        for fid in candidates:
+            candidate = self.score_candidate(fid)
+            if candidate:
+                scored.append(candidate)
+
+        # Sort by overall score descending
+        scored.sort(key=lambda c: -c.overall_score)
+
+        recommended = scored[0] if scored else None
+        alternatives = scored[1:] if len(scored) > 1 else []
+
+        # Check if we should recommend No_Action
+        insufficient = self._check_insufficient_information(scored)
+
+        return {
+            "problem": {
+                "workflow": self.assessment.workflow,
+                "business_function": self.assessment.business_function,
+                "constraint": self.constraint.get("label", "Unknown"),
+                "constraint_type": self.assessment.constraint,
+                "problem_statement": self.assessment.problem_statement,
+                "desired_outcome": self.assessment.desired_outcome,
+            },
+            "recommended_intervention": self._format_candidate(recommended) if recommended else None,
+            "alternatives_considered": [self._format_candidate(c) for c in alternatives],
+            "insufficient_information": insufficient,
+            "economics": self._format_economics(recommended) if recommended and recommended.economics else None,
+            "contraindications": recommended.contraindications_triggered if recommended else [],
+            "methodology": {
+                "engine_version": "decision-v1",
+                "dimensions_scored": list(WEIGHTS.keys()),
+                "candidates_generated_from": f"constraint={self.assessment.constraint}",
+                "evidence_independent": "Candidates generated before evidence lookup",
+            },
+        }
+
+    # ── Dimension Scorers ──
+
+    def _score_problem_fit(self, family_id: str) -> DimensionScore:
+        w = self.constraint.get("intervention_weights", {}).get(family_id, 0.3)
+        return DimensionScore(
+            score=max(0.0, min(1.0, w)),
+            confidence=0.7 if self.assessment.constraint != "unknown" else 0.3,
+            rationale=f"Constraint '{self.assessment.constraint}' → {INTERVENTION_FAMILIES[family_id].name} weight={w:.2f}"
+        )
+
+    def _score_economic_fit(self, family: InterventionFamily) -> DimensionScore:
+        cost_range = family.typical_cost_range
+        budget = self.assessment.budget_range
+
+        budget_map = {
+            "Under $10k": 10000, "$10k–25k": 25000, "$25k–50k": 50000,
+            "$50k–100k": 100000, "$100k–250k": 250000, "$250k+": 500000,
+            "": 100000,
+        }
+        budget_mid = budget_map.get(budget, 100000)
+
+        # Estimate intervention cost midpoint
+        import re
+        nums = re.findall(r'[\d,]+', cost_range.replace('K', '000').replace('M', '000000'))
+        cost_nums = [int(n.replace(',', '')) for n in nums]
+        if len(cost_nums) >= 2:
+            cost_mid = (cost_nums[0] + cost_nums[1]) / 2
+        else:
+            cost_mid = cost_nums[0] if cost_nums else 100000
+
+        affordability = min(1.0, budget_mid / max(cost_mid, 1))
+        roi = family.labor_reduction_pct[0] / 100  # conservative estimate
+
+        score = (affordability * 0.4 + roi * 0.6) if isinstance(roi, (int, float)) else affordability
+
+        return DimensionScore(
+            score=round(max(0.1, min(1.0, score)), 2),
+            confidence=0.6 if budget else 0.3,
+            rationale=f"Budget ~${budget_mid:,.0f} vs family range {cost_range}. "
+                      f"Labor reduction {family.labor_reduction_pct[0]}–{family.labor_reduction_pct[1]}%"
+        )
+
+    def _score_automation_potential(self, family: InterventionFamily) -> DimensionScore:
+        exception_rate = self.assessment.exception_rate
+        stability = self.assessment.process_stability
+
+        # Low exceptions + stable = high automation potential
+        exception_score = 0.8 if "almost no" in exception_rate.lower() else \
+                          0.6 if "some" in exception_rate.lower() or "<10" in exception_rate else \
+                          0.4 if "10–30" in exception_rate else \
+                          0.2 if "30%+" in exception_rate else 0.3
+        stability_score = 0.6 if "stable" in stability.lower() else \
+                           0.4 if "somewhat" in stability.lower() else 0.3
+
+        score = exception_score * 0.6 + stability_score * 0.4
+
+        return DimensionScore(
+            score=round(score, 2),
+            confidence=0.5 if exception_rate else 0.2,
+            rationale=f"Exception rate score={exception_score:.1f}, stability={stability_score:.1f}"
+        )
+
+    def _score_volume_fit(self, family: InterventionFamily) -> DimensionScore:
+        vol = self.assessment.annual_workflow_volume
+        if not vol:
+            return DimensionScore(0.5, 0.1, "Volume unknown")
+
+        # AI and automation need volume to justify setup cost
+        if family.id in ("AI", "Workflow_Automation"):
+            if vol < 6000: score = 0.2
+            elif vol < 60000: score = 0.6
+            elif vol < 600000: score = 0.85
+            else: score = 0.95
+        elif family.id == "Staffing":
+            if vol < 6000: score = 0.9
+            elif vol < 60000: score = 0.7
+            else: score = 0.4
+        else:
+            if vol < 6000: score = 0.5
+            elif vol < 60000: score = 0.7
+            else: score = 0.85
+
+        return DimensionScore(
+            score=score,
+            confidence=0.7,
+            rationale=f"Annual volume ~{vol:,.0f} items → {family.id} fit={score:.2f}"
+        )
+
+    def _score_exception_fit(self, family: InterventionFamily) -> DimensionScore:
+        exception_rate = self.assessment.exception_rate.lower()
+        if "almost no" in exception_rate: rate = 0.05
+        elif "some" in exception_rate or "<10" in exception_rate: rate = 0.1
+        elif "10–30" in exception_rate: rate = 0.2
+        elif "30%+" in exception_rate: rate = 0.4
+        elif "entire" in exception_rate: rate = 0.8
+        else: rate = 0.2
+
+        # Automation struggles with high exceptions, staffing handles them well
+        if family.id in ("AI", "Workflow_Automation"):
+            score = max(0.1, 1.0 - rate * 2.5)
+        elif family.id == "Staffing":
+            score = min(1.0, rate * 2 + 0.3)
+        elif family.id == "Hybrid":
+            score = max(0.3, 1.0 - rate * 1.5)
+        else:
+            score = max(0.2, 1.0 - rate * 2)
+
+        return DimensionScore(
+            score=round(score, 2),
+            confidence=0.5 if self.assessment.exception_rate else 0.2,
+            rationale=f"Exception rate ~{rate:.0%} → {family.id} handles{' well' if score > 0.6 else ' poorly'}"
+        )
+
+    def _score_risk(self, family: InterventionFamily) -> DimensionScore:
+        risk = self.assessment.business_risk.lower()
+        if "critical" in risk or "safety" in risk: risk_level = 0.9
+        elif "high" in risk or "significant" in risk: risk_level = 0.7
+        elif "medium" in risk or "noticeable" in risk: risk_level = 0.5
+        elif "low" in risk or "small" in risk: risk_level = 0.3
+        else: risk_level = 0.5
+
+        # AI has higher risk in regulated environments, staffing is safer
+        if family.id == "AI":
+            score = max(0.2, 1.0 - risk_level * 0.8)
+        elif family.id == "Staffing":
+            score = 0.9  # People are low-risk to deploy
+        elif family.id == "Software":
+            score = max(0.3, 1.0 - risk_level * 0.6)
+        else:
+            score = max(0.3, 1.0 - risk_level * 0.7)
+
+        return DimensionScore(
+            score=round(score, 2),
+            confidence=0.5,
+            rationale=f"Failure risk level={risk_level:.1f} → {family.id} risk tolerance={score:.2f}"
+        )
+
+    def _score_feasibility(self, family: InterventionFamily) -> DimensionScore:
+        budget = self.assessment.budget_range
+        timeline = self.assessment.implementation_timeline
+
+        budget_ok = budget not in ("Under $10k", "") or family.id == "No_Action"
+        timeline_map = {
+            "Immediately": 2, "30 days": 4, "1–3 months": 8,
+            "3–6 months": 16, "6–12 months": 30, "Flexible": 20, "": 12,
+        }
+        weeks = timeline_map.get(timeline, 12)
+
+        # Can this family deliver in the required timeline?
+        typical_weeks = {"AI": 16, "Software": 10, "Workflow_Automation": 8,
+                         "Process_Redesign": 16, "Staffing": 4, "Hybrid": 20,
+                         "No_Action": 3}
+        fam_weeks = typical_weeks.get(family.id, 12)
+
+        timeline_fit = min(1.0, weeks / max(fam_weeks, 1)) if weeks > 0 else 0.5
+
+        score = (0.7 if budget_ok else 0.3) * 0.5 + timeline_fit * 0.5
+
+        return DimensionScore(
+            score=round(score, 2),
+            confidence=0.5,
+            rationale=f"Budget fit={budget_ok}, timeline={weeks}w vs {fam_weeks}w typical"
+        )
+
+    def _score_organizational_readiness(self, family: InterventionFamily) -> DimensionScore:
+        freq = self.assessment.workflow_frequency
+        freq_score = 0.8 if "multiple times" in freq.lower() else \
+                     0.6 if "hourly" in freq.lower() else \
+                     0.5 if "daily" in freq.lower() else 0.3
+
+        return DimensionScore(
+            score=round(freq_score, 2),
+            confidence=0.3,
+            rationale=f"Frequency '{freq}' → readiness ~{freq_score:.2f}"
+        )
+
+    def _score_integration_feasibility(self, family: InterventionFamily) -> DimensionScore:
+        return DimensionScore(
+            score=0.6, confidence=0.2,
+            rationale="Integration assessment requires tool-specific data"
+        )
+
+    def _score_time_to_value(self, family: InterventionFamily) -> DimensionScore:
+        timeline = self.assessment.implementation_timeline
+        urgency = 0.9 if "immediately" in timeline.lower() else \
+                   0.7 if "30 days" in timeline.lower() else \
+                   0.5 if "1–3" in timeline else \
+                   0.3 if "3–6" in timeline else 0.2
+
+        # Staffing and process redesign deliver faster
+        if family.id == "Staffing": speed = 0.9
+        elif family.id == "No_Action": speed = 1.0
+        elif family.id == "Workflow_Automation": speed = 0.7
+        elif family.id == "AI": speed = 0.4
+        elif family.id == "Hybrid": speed = 0.3
+        else: speed = 0.6
+
+        score = speed * 0.6 + urgency * 0.4
+
+        return DimensionScore(
+            score=round(score, 2),
+            confidence=0.5,
+            rationale=f"Urgency={urgency:.1f}, family speed={speed:.1f}"
+        )
+
+    # ── Contraindications ──
+
+    def _check_contraindications(self, family: InterventionFamily) -> list[str]:
+        triggered = []
+        a = self.assessment
+
+        vol = a.annual_workflow_volume
+        for ci in family.contraindications:
+            ci_lower = ci.lower()
+            if "very low volume" in ci_lower and vol and vol < 6000:
+                triggered.append(ci)
+            if "too many exceptions" in ci_lower and "highly variable" in a.exception_rate.lower():
+                triggered.append(ci)
+            if "not standardized" in ci_lower and "entirely manual" in (a.process_stability or "").lower():
+                triggered.append(ci)
+
+        return triggered
+
+    # ── Economics ──
+
+    def _calculate_economics(self, family: InterventionFamily) -> Optional[InterventionEconomics]:
+        a = self.assessment
+        vol = a.annual_workflow_volume
+        hours = a.current_handling_time
+        rate = a.loaded_labor_cost
+
+        if not vol or not hours or not rate:
+            return None
+
+        current_annual = vol * hours * rate
+
+        # Automatable % depends on family and exception rate
+        exception_rate = a.exception_rate.lower()
+        if "almost no" in exception_rate: except_pct = 0.02
+        elif "some" in exception_rate: except_pct = 0.08
+        elif "10–30" in exception_rate: except_pct = 0.2
+        elif "30%+" in exception_rate: except_pct = 0.35
+        else: except_pct = 0.15
+
+        automatable = family.labor_reduction_pct[1] / 100 * (1 - except_pct)
+        automatable = max(0.05, min(0.95, automatable))
+
+        expected_savings = current_annual * automatable
+        conservative_savings = current_annual * family.labor_reduction_pct[0] / 100 * (1 - except_pct * 2)
+        upside_savings = current_annual * family.labor_reduction_pct[1] / 100
+
+        # Estimate implementation cost
+        import re
+        cost_nums = re.findall(r'[\d,]+', family.typical_cost_range.replace('K', '000').replace('M', '000000').replace('/year', ''))
+        cost_nums = [int(n.replace(',', '')) for n in cost_nums]
+        impl_cost = (cost_nums[0] + cost_nums[-1]) / 2 if cost_nums else 50000
+        annual_op = impl_cost * 0.15  # ~15% annual operating cost
+
+        net_annual = expected_savings - annual_op
+        payback = (impl_cost / net_annual * 12) if net_annual > 0 else float('inf')
+        three_year = (net_annual * 3 - impl_cost) / max(impl_cost, 1)
+
+        return InterventionEconomics(
+            current_annual_labor_cost=round(current_annual, 0),
+            automatable_pct=round(automatable * 100, 1),
+            expected_annual_savings=round(expected_savings, 0),
+            implementation_cost_estimate=round(impl_cost, 0),
+            annual_operating_cost=round(annual_op, 0),
+            payback_months=round(payback, 1) if payback < float('inf') else None,
+            three_year_roi=round(three_year, 0) if three_year < float('inf') else None,
+            conservative_savings=round(conservative_savings, 0),
+            expected_savings=round(expected_savings, 0),
+            upside_savings=round(upside_savings, 0),
+            assumptions=[
+                f"Annual volume: {vol:,.0f} items",
+                f"Handling time: {hours:.3f} hours/item",
+                f"Loaded cost: ${rate:,.0f}/hour",
+                f"Current annual labor: ${current_annual:,.0f}",
+                f"Automatable: {automatable*100:.0f}% (labor reduction {family.labor_reduction_pct[1]}% × (1 - {except_pct:.0%} exceptions))",
+                f"Implementation cost: ${impl_cost:,.0f}",
+                f"Annual operating cost: ${annual_op:,.0f}",
+            ],
+        )
+
+    def _check_insufficient_information(self, scored: list[InterventionCandidate]) -> Optional[dict]:
+        """Return a 'do not proceed' recommendation if information is insufficient."""
+        if self.assessment.constraint == "unknown":
+            return {
+                "reason": "constraint_unknown",
+                "message": (
+                    "The workflow appears suitable for improvement, but the root cause "
+                    "of underperformance has not been identified. Establish the baseline "
+                    "and diagnose the constraint before selecting an intervention."
+                ),
+                "recommended_action": "Run discovery: measure current volume, error rate, handling time, and cost baseline.",
+            }
+
+        if not self.assessment.annual_workflow_volume:
+            return {
+                "reason": "volume_unknown",
+                "message": (
+                    "Without volume data, the economic case for any intervention cannot "
+                    "be validated. Automation investments require sufficient scale to justify setup cost."
+                ),
+                "recommended_action": "Measure monthly volume for at least one quarter before proceeding.",
+            }
+
+        # If best candidate scores below 0.4 overall, recommend baseline
+        if scored and scored[0].overall_score < 0.4:
+            return {
+                "reason": "low_confidence",
+                "message": (
+                    "No intervention scores above the confidence threshold for this "
+                    "combination of constraint, volume, and organizational context. "
+                    "Establish a clearer baseline before committing to an intervention."
+                ),
+                "recommended_action": "Run a pilot measurement period and re-assess.",
+            }
+
+        return None
+
+    # ── Formatting ──
+
+    def _format_candidate(self, c: InterventionCandidate) -> dict:
+        return {
+            "family_id": c.family_id,
+            "family_name": c.family_name,
+            "overall_score": c.overall_score,
+            "dimensions": {
+                dim: {"score": s.score, "confidence": s.confidence, "rationale": s.rationale}
+                for dim, s in c.scores.items()
+            },
+            "economics": self._format_economics(c) if c.economics else None,
+            "contraindications_triggered": c.contraindications_triggered,
+            "evidence": c.evidence[:5] if c.evidence else [],
+            "negative_evidence": c.negative_evidence[:3] if c.negative_evidence else [],
+        }
+
+    def _format_economics(self, c: InterventionCandidate) -> Optional[dict]:
+        if not c.economics:
+            return None
+        e = c.economics
+        return {
+            "current_annual_labor_cost": e.current_annual_labor_cost,
+            "automatable_pct": e.automatable_pct,
+            "expected_annual_savings": e.expected_annual_savings,
+            "implementation_cost_estimate": e.implementation_cost_estimate,
+            "annual_operating_cost": e.annual_operating_cost,
+            "payback_months": e.payback_months,
+            "three_year_roi": e.three_year_roi,
+            "scenarios": {
+                "conservative": e.conservative_savings,
+                "expected": e.expected_savings,
+                "upside": e.upside_savings,
+            },
+            "assumptions": e.assumptions,
+        }
+
+
+# ── Per-Constraint Weights ────────────────────────────────────────────────────
+# Different constraints need different scoring priorities.
+# Capacity → volume_fit matters more, Quality → automation_potential matters less.
+
+CONSTRAINT_WEIGHT_OVERRIDES: dict[str, dict[str, float]] = {
+    "capacity": {"volume_fit": 0.15, "economic_fit": 0.12, "automation_potential": 0.15},
+    "errors": {"automation_potential": 0.18, "exception_fit": 0.13, "risk": 0.10},
+    "speed": {"time_to_value": 0.12, "automation_potential": 0.15, "volume_fit": 0.08},
+    "quality": {"automation_potential": 0.08, "exception_fit": 0.13, "organizational_readiness": 0.10},
+    "cost": {"economic_fit": 0.22, "volume_fit": 0.13, "automation_potential": 0.15},
+    "visibility": {"integration_feasibility": 0.12, "automation_potential": 0.05, "problem_fit": 0.14},
+    "compliance": {"risk": 0.18, "feasibility": 0.10, "automation_potential": 0.06},
+    "unknown": {"problem_fit": 0.12, "evidence_strength": 0.03, "automation_potential": 0.05},
+}
+
+
+def get_weights_for_constraint(constraint_type: str) -> dict[str, float]:
+    """Return scoring weights tuned for a specific constraint type."""
+    base = dict(WEIGHTS)
+    overrides = CONSTRAINT_WEIGHT_OVERRIDES.get(constraint_type, {})
+    # Apply overrides and renormalize
+    for dim, w in overrides.items():
+        base[dim] = w
+    total = sum(base.values())
+    return {k: round(v / total, 3) for k, v in base.items()}
+
+
+# ── Evidence Wiring ───────────────────────────────────────────────────────────
+
+def wire_evidence(decision_result: dict, workflow: str, business_function: str,
+                  industry: str = "", employee_count: int = None,
+                  desired_outcome: str = "") -> dict:
+    """Wire evidence retrieval into the decision engine output.
+
+    For each candidate intervention, query the evidence database for
+    comparable implementations and update evidence_strength with
+    actual retrieval scores. Also adds observed outcomes for comparison
+    with predicted economics.
+    """
+    try:
+        from compass_collector.analysis.retrieval import (
+            ImplementationQuery, find_comparable_implementations, get_negative_evidence,
+        )
+
+        candidates = [decision_result.get("recommended_intervention")] if decision_result.get("recommended_intervention") else []
+        candidates.extend(decision_result.get("alternatives_considered", []))
+
+        for candidate in candidates:
+            if not candidate: continue
+
+            fid = candidate.get("family_id", "")
+            if fid == "No_Action": continue
+
+            family_info = INTERVENTION_FAMILIES.get(fid)
+            if not family_info: continue
+
+            # Query evidence for this intervention family
+            query = ImplementationQuery(
+                workflow=workflow,
+                business_function=business_function,
+                industry=industry,
+                employee_count=employee_count,
+                intervention_subcategory=family_info.subtypes[0] if family_info.subtypes else "",
+                desired_outcome=desired_outcome,
+                max_results=10,
+            )
+            results = find_comparable_implementations(query)
+
+            if results and results.get("results"):
+                top = results["results"][:5]
+                avg_sim = sum(r.get("similarity_score", 0) for r in top) / len(top)
+
+                # Build evidence summaries
+                evidence_items = []
+                for r in top:
+                    evidence_items.append({
+                        "organization": r.get("organization", "Unknown"),
+                        "intervention": r.get("intervention", ""),
+                        "similarity": round(r.get("similarity_score", 0), 2),
+                        "outcome": r.get("outcome_summaries", [])[:2],
+                        "cost_savings": r.get("cost_savings"),
+                        "status": r.get("status", "unknown"),
+                        "vendor_reported": r.get("vendor_reported", False),
+                        "independently_verified": r.get("independently_verified", False),
+                    })
+
+                # Update evidence strength
+                if "dimensions" in candidate and "evidence_strength" in candidate["dimensions"]:
+                    candidate["dimensions"]["evidence_strength"] = {
+                        "score": round(avg_sim, 2),
+                        "confidence": min(1.0, len(top) / 10),
+                        "rationale": f"{len(top)} comparable implementations found, avg similarity {avg_sim:.2f}",
+                    }
+
+                candidate["evidence"] = evidence_items
+
+                # Get negative evidence
+                negative = get_negative_evidence(query)
+                if negative:
+                    candidate["negative_evidence"] = [
+                        {"organization": n.get("organization", ""),
+                         "what_failed": n.get("summary", ""),
+                         "cost": n.get("cost_savings")}
+                        for n in negative[:3]
+                    ]
+
+                # Recompute overall score with evidence
+                if "dimensions" in candidate:
+                    dims = candidate["dimensions"]
+                    weights = get_weights_for_constraint(
+                        decision_result.get("problem", {}).get("constraint_type", "unknown")
+                    )
+                    overall = sum(
+                        weights.get(d, 0) * dims[d].get("score", 0.5)
+                        for d in dims if d in weights
+                    )
+                    candidate["overall_score"] = round(overall, 3)
+
+        # Re-sort alternatives by updated overall_score
+        alternatives = decision_result.get("alternatives_considered", [])
+        alternatives.sort(key=lambda c: -(c.get("overall_score", 0) if c else 0))
+
+        # Observed vs predicted comparison
+        rec = decision_result.get("recommended_intervention")
+        if rec and rec.get("economics") and rec.get("evidence"):
+            observed_savings = []
+            for e in rec["evidence"]:
+                if e.get("cost_savings"):
+                    observed_savings.append(e["cost_savings"])
+            if observed_savings:
+                import statistics
+                rec["observed_outcomes"] = {
+                    "cost_savings_range": [min(observed_savings), max(observed_savings)],
+                    "median_cost_savings": statistics.median(observed_savings),
+                    "sample_size": len(observed_savings),
+                }
+
+        # Add counterfactual rationale
+        decision_result["counterfactual_rationale"] = _generate_counterfactual(decision_result)
+
+    except Exception:
+        pass  # Evidence wiring is best-effort, don't block the decision
+
+    return decision_result
+
+
+def _generate_counterfactual(decision_result: dict) -> dict:
+    """Generate natural-language rationale explaining why the recommended
+    intervention beats each alternative on specific dimensions."""
+    rec = decision_result.get("recommended_intervention")
+    alts = decision_result.get("alternatives_considered", [])
+
+    if not rec or not alts:
+        return {"summary": "No alternatives to compare."}
+
+    comparisons = []
+    for alt in alts[:3]:
+        if not alt: continue
+        rec_dims = rec.get("dimensions", {})
+        alt_dims = alt.get("dimensions", {})
+
+        # Find dimensions where recommended beats alternative
+        wins = []
+        for dim in ["problem_fit", "economic_fit", "volume_fit", "automation_potential", "risk"]:
+            rec_score = rec_dims.get(dim, {}).get("score", 0)
+            alt_score = alt_dims.get(dim, {}).get("score", 0)
+            if rec_score > alt_score + 0.05:
+                wins.append({
+                    "dimension": dim,
+                    "recommended": round(rec_score, 2),
+                    "alternative": round(alt_score, 2),
+                    "margin": round(rec_score - alt_score, 2),
+                })
+
+        loses = []
+        for dim in ["economic_fit", "feasibility", "risk", "time_to_value"]:
+            rec_score = rec_dims.get(dim, {}).get("score", 0)
+            alt_score = alt_dims.get(dim, {}).get("score", 0)
+            if alt_score > rec_score + 0.05:
+                loses.append({
+                    "dimension": dim,
+                    "recommended": round(rec_score, 2),
+                    "alternative": round(alt_score, 2),
+                    "deficit": round(alt_score - rec_score, 2),
+                })
+
+        # Generate rationale
+        rationale_parts = []
+        if wins:
+            top_win = max(wins, key=lambda w: w["margin"])
+            rationale_parts.append(
+                f"{rec['family_name']} is recommended over {alt['family_name']} "
+                f"because it better addresses the constraint ({top_win['dimension']}: "
+                f"{top_win['recommended']} vs {top_win['alternative']})"
+            )
+        if loses:
+            top_loss = max(loses, key=lambda l: l["deficit"])
+            rationale_parts.append(
+                f"However, {alt['family_name']} has an advantage in {top_loss['dimension']} "
+                f"({top_loss['alternative']} vs {top_loss['recommended']}). "
+                f"Consider if {top_loss['dimension']} is more important than the primary constraint."
+            )
+
+        comparisons.append({
+            "alternative": alt["family_name"],
+            "recommended_wins": wins,
+            "recommended_loses": loses,
+            "rationale": " ".join(rationale_parts),
+        })
+
+    # Overall summary
+    summary = (
+        f"{rec['family_name']} is the recommended intervention for this {decision_result.get('problem', {}).get('constraint', 'unknown')} "
+        f"constraint. "
+    )
+    if comparisons:
+        alts_names = [c["alternative"] for c in comparisons]
+        summary += f"Alternatives considered: {', '.join(alts_names)}. "
+        if any(c["recommended_wins"] for c in comparisons):
+            top_dim = comparisons[0]["recommended_wins"][0]["dimension"] if comparisons[0].get("recommended_wins") else ""
+            summary += f"The primary differentiator is {top_dim}."
+
+    return {
+        "summary": summary,
+        "per_alternative": comparisons,
+    }
+
+
+# ── Full pipeline ─────────────────────────────────────────────────────────────
+
+def decide_with_evidence(
+    assessment: AssessmentInput,
+    workflow: str = "",
+    business_function: str = "",
+    industry: str = "",
+    employee_count: int = None,
+    desired_outcome: str = "",
+) -> dict:
+    """Full decision pipeline: generate candidates → score → compare → wire evidence.
+
+    This is the main entry point for the multi-intervention decision model.
+    It generates candidates BEFORE querying evidence, scores each independently,
+    then wires evidence retrieval into the result for evidence_strength scoring
+    and observed vs predicted outcome comparison.
+    """
+    engine = DecisionEngine(assessment)
+
+    # Use per-constraint weights
+    constraint_weights = get_weights_for_constraint(assessment.constraint)
+    # Override default weights in the engine
+    global WEIGHTS
+    saved = dict(WEIGHTS)
+    for dim in WEIGHTS:
+        if dim in constraint_weights:
+            WEIGHTS[dim] = constraint_weights[dim]
+
+    decision = engine.decide()
+
+    # Restore weights
+    for dim in WEIGHTS:
+        WEIGHTS[dim] = saved[dim]
+
+    # Wire evidence
+    decision = wire_evidence(
+        decision,
+        workflow=workflow or assessment.workflow,
+        business_function=business_function or assessment.business_function,
+        industry=industry or assessment.industry,
+        employee_count=employee_count,
+        desired_outcome=desired_outcome or assessment.desired_outcome,
+    )
+
+    decision["methodology"]["weights_used"] = constraint_weights
+    decision["methodology"]["weights_tuned_for"] = assessment.constraint
+
+    return decision
