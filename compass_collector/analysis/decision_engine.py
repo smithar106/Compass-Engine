@@ -1016,6 +1016,8 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                         "similarity": round(r.get("similarity_score", 0), 2),
                         "outcome": r.get("outcome_summaries", [])[:2],
                         "cost_savings": r.get("cost_savings"),
+                        "implementation_time": r.get("implementation_time"),
+                        "employee_count": r.get("employee_count"),
                         "status": r.get("status", "unknown"),
                         "vendor_reported": r.get("vendor_reported", False),
                         "independently_verified": r.get("independently_verified", False),
@@ -1071,20 +1073,56 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
             decision_result["recommended_intervention"] = all_candidates[0]
             decision_result["alternatives_considered"] = all_candidates[1:]
 
-        # Observed vs predicted
+        # Observed vs predicted — impact at other companies
         rec = decision_result.get("recommended_intervention")
-        if rec and rec.get("economics") and rec.get("evidence"):
-            observed_savings = []
-            for e in rec["evidence"]:
+        if rec and rec.get("evidence"):
+            impact_items = []
+            for e in rec.get("evidence", [])[:5]:
+                item = {
+                    "company": e.get("organization", "Unknown"),
+                    "what_they_did": e.get("intervention", "")[:150],
+                    "similarity": e.get("similarity", 0),
+                }
                 if e.get("cost_savings"):
-                    observed_savings.append(e["cost_savings"])
+                    item["cost_impact"] = e["cost_savings"]
+                if e.get("implementation_time"):
+                    item["timeline"] = e["implementation_time"]
+                if e.get("employee_count"):
+                    item["company_size"] = e["employee_count"]
+                if e.get("status"):
+                    item["outcome"] = e["status"]
+                if e.get("outcome"):
+                    item["outcomes"] = e["outcome"]
+                impact_items.append(item)
+
+            rec["impact_at_other_companies"] = impact_items
+
+            # Compute aggregate stats from observed outcomes
+            observed_savings = []
+            observed_timelines = []
+            for e in rec.get("evidence", []):
+                if e.get("cost_savings"):
+                    try: observed_savings.append(float(str(e["cost_savings"]).replace("$","").replace(",","")))
+                    except: pass
+                if e.get("implementation_time"):
+                    try: observed_timelines.append(float(str(e["implementation_time"]).replace("weeks","").replace("months","").strip()))
+                    except: pass
+
             if observed_savings:
                 import statistics
                 rec["observed_outcomes"] = {
                     "cost_savings_range": [min(observed_savings), max(observed_savings)],
-                    "median_cost_savings": statistics.median(observed_savings),
+                    "median_cost_savings": statistics.median(observed_savings) if observed_savings else None,
                     "sample_size": len(observed_savings),
+                    "companies_with_cost_data": len(observed_savings),
                 }
+            if observed_timelines:
+                rec["observed_timelines"] = {
+                    "range_weeks": [min(observed_timelines), max(observed_timelines)],
+                    "median_weeks": statistics.median(observed_timelines) if observed_timelines else None,
+                }
+
+        if rec and rec.get("economics") and rec.get("evidence"):
 
         # Counterfactual rationale with actual numbers
         decision_result["counterfactual_rationale"] = _generate_counterfactual(
