@@ -1122,8 +1122,6 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                     "median_weeks": statistics.median(observed_timelines) if observed_timelines else None,
                 }
 
-        if rec and rec.get("economics") and rec.get("evidence"):
-
         # Counterfactual rationale with actual numbers
         decision_result["counterfactual_rationale"] = _generate_counterfactual(
             decision_result,
