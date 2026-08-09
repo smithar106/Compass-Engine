@@ -278,6 +278,7 @@ class AssessmentInput:
     implementation_timeline: str = ""
     business_risk: str = ""
     process_stability: str = ""
+    previous_attempts: str = ""
     desired_outcome: str = ""
     annual_workflow_volume: Optional[float] = None
     current_handling_time: Optional[float] = None
@@ -745,7 +746,7 @@ class DecisionEngine:
         else: except_pct = 0.15
 
         automatable = family.labor_reduction_pct[1] / 100 * (1 - except_pct)
-        automatable = max(0.05, min(0.95, automatable))
+        automatable = max(0.05, min(0.70, automatable))  # Cap at 70% — no intervention eliminates all labor
 
         expected_savings = current_annual * automatable
         conservative_savings = current_annual * family.labor_reduction_pct[0] / 100 * (1 - except_pct * 2)
@@ -994,7 +995,9 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
 
             if results and results.get("results"):
                 top = results["results"][:5]
-                avg_sim = sum(r.get("similarity_score", 0) for r in top) / len(top)
+                # Normalize similarity from retrieval scale (0-100) to 0-1
+                raw_sim = sum(r.get("similarity_score", 0) for r in top) / len(top)
+                avg_sim = min(1.0, raw_sim / 100.0) if raw_sim > 1.0 else raw_sim
 
                 # ── Evidence as floor: fewer than 3 results → low confidence ──
                 if len(top) < 3:
@@ -1056,8 +1059,17 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                     "reason": f"No comparable implementations found for {fid}",
                 })
 
-        alternatives = decision_result.get("alternatives_considered", [])
-        alternatives.sort(key=lambda c: -(c.get("overall_score", 0) if c else 0))
+        # Re-sort ALL candidates by updated overall_score (evidence may change ranking)
+        all_candidates = []
+        if decision_result.get("recommended_intervention"):
+            all_candidates.append(decision_result["recommended_intervention"])
+        alts = decision_result.get("alternatives_considered", [])
+        all_candidates.extend(alts)
+        all_candidates.sort(key=lambda c: -(c.get("overall_score", 0) if c else 0))
+
+        if all_candidates:
+            decision_result["recommended_intervention"] = all_candidates[0]
+            decision_result["alternatives_considered"] = all_candidates[1:]
 
         # Observed vs predicted
         rec = decision_result.get("recommended_intervention")
