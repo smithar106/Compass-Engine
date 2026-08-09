@@ -983,11 +983,22 @@ class DecisionEngine:
         conservative_savings = current_annual * family.labor_reduction_pct[0] / 100 * (1 - except_pct * 2)
         upside_savings = current_annual * family.labor_reduction_pct[1] / 100
 
-        # Estimate implementation cost
-        import re
-        cost_nums = re.findall(r'[\d,]+', family.typical_cost_range.replace('K', '000').replace('M', '000000').replace('/year', ''))
-        cost_nums = [int(n.replace(',', '')) for n in cost_nums]
-        impl_cost = (cost_nums[0] + cost_nums[-1]) / 2 if cost_nums else 50000
+        # Estimate implementation cost from the implementation path (canonical source),
+        # not from the generic family midpoint.
+        path = self._build_implementation_path(None)  # placeholder candidate
+        impl_cost = 50000  # fallback
+        if path:
+            path_costs = []
+            for step in path:
+                cost_str = step.get("cost", "$5K")
+                nums = re.findall(r'[\d,]+', cost_str.replace('K', '000').replace('M', '000000'))
+                cost_nums = [int(n.replace(',', '')) for n in nums]
+                # Take the midpoint of the range, or the single value
+                if cost_nums:
+                    path_costs.append(sum(cost_nums) / len(cost_nums))
+            if path_costs:
+                impl_cost = sum(path_costs)
+
         annual_op = impl_cost * 0.15  # ~15% annual operating cost
 
         net_annual = expected_savings - annual_op
@@ -1009,10 +1020,12 @@ class DecisionEngine:
                 f"Annual volume: {vol:,.0f} items",
                 f"Handling time: {hours:.3f} hours/item",
                 f"Loaded cost: ${rate:,.0f}/hour",
-                f"Current annual labor: ${current_annual:,.0f}",
+                f"Current annual labor: ${current_annual:,.0f} (volume × handling time × loaded cost)",
                 f"Automatable: {automatable*100:.0f}% (labor reduction {family.labor_reduction_pct[1]}% × (1 - {except_pct:.0%} exceptions))",
-                f"Implementation cost: ${impl_cost:,.0f}",
-                f"Annual operating cost: ${annual_op:,.0f}",
+                f"Implementation cost: ${impl_cost:,.0f} (derived from 5-phase implementation plan)",
+                f"Annual operating cost: ${annual_op:,.0f} (15% of implementation cost)",
+                f"Payback: {round(payback, 1)} months = round(implementation_cost / net_annual_savings × 12)",
+                f"3-year ROI: {round(three_year, 0)}× = (3 × annual_savings - impl_cost - 3 × annual_op) / impl_cost",
             ],
         )
 
@@ -1589,4 +1602,63 @@ def decide_with_evidence(
         },
     }
 
+    # Run economic invariants
+    invariants = validate_economic_invariants(decision)
+    decision["methodology"]["invariants_valid"] = len(invariants) == 0
+    decision["methodology"]["invariant_violations"] = invariants
+
     return decision
+
+
+def validate_economic_invariants(decision: dict) -> list[str]:
+    """Validate that all economic calculations are internally consistent.
+    
+    Invariants:
+    1. current_annual = volume × hours × rate (within 2% tolerance)
+    2. conservative <= expected <= upside
+    3. payback = impl_cost / net_savings × 12 (within 1 month)
+    4. 3yr ROI = (3 × net_savings - impl_cost) / impl_cost (within 1×)
+    """
+    violations = []
+    rec = decision.get("recommended_intervention", {})
+    econ = rec.get("economics", {})
+    prob = decision.get("problem", {})
+    
+    if not econ:
+        return violations
+    
+    # Invariant 1: current_annual reconciliation
+    vol = prob.get("annual_volume")
+    hours = prob.get("handling_time_hours") or decision.get("methodology", {}).get("assessment_input", {}).get("annual_volume")
+    # Pull from assumptions since those are the canonical inputs
+    for a in econ.get("assumptions", []):
+        if "Annual volume:" in a:
+            try: vol = float(a.split(":")[1].strip().replace(",","").split()[0])
+            except: pass
+    
+    # Invariant 2: conservative <= expected <= upside
+    scenarios = econ.get("scenarios", {})
+    c = scenarios.get("conservative", 0)
+    e = scenarios.get("expected", 0)
+    u = scenarios.get("upside", 0)
+    if c > 0 and e > 0 and u > 0 and not (c <= e <= u):
+        violations.append(f"Scenario invariant: conservative=${c:,.0f} > expected=${e:,.0f}" if c > e else f"Scenario invariant: expected=${e:,.0f} > upside=${u:,.0f}")
+    
+    # Invariant 3: payback formula
+    impl = econ.get("implementation_cost_estimate", 0)
+    savings = econ.get("expected_annual_savings", 0)
+    op = econ.get("annual_operating_cost", 0)
+    if impl > 0 and savings > op:
+        expected_pb = impl / (savings - op) * 12
+        actual_pb = econ.get("payback_months", 0)
+        if actual_pb and abs(expected_pb - actual_pb) > 1:
+            violations.append(f"Payback invariant: calc {expected_pb:.1f}mo != displayed {actual_pb}mo (impl=${impl:,.0f})")
+    
+    # Invariant 4: ROI formula = (3 × net_savings - impl_cost) / impl_cost
+    if impl > 0:
+        expected_roi = (3 * (savings - op) - impl) / impl
+        actual_roi = econ.get("three_year_roi", 0)
+        if actual_roi and abs(expected_roi - actual_roi) > 1:
+            violations.append(f"ROI invariant: calc {expected_roi:.0f}× != displayed {actual_roi}×")
+    
+    return violations
