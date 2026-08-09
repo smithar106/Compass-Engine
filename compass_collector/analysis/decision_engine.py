@@ -493,6 +493,7 @@ class DecisionEngine:
             "insufficient_information": insufficient,
             "economics": self._format_economics(recommended) if recommended and recommended.economics else None,
             "contraindications": recommended.contraindications_triggered if recommended else [],
+            "implementation_path": self._build_implementation_path(recommended) if recommended else [],
             "methodology": {
                 "engine_version": "decision-v1",
                 "dimensions_scored": list(WEIGHTS.keys()),
@@ -501,7 +502,237 @@ class DecisionEngine:
             },
         }
 
-    # ── Dimension Scorers ──
+    # ── Implementation Path ──
+
+    def _build_implementation_path(self, candidate: InterventionCandidate) -> list[dict]:
+        """Generate a 5-step implementation path tailored to the intervention family,
+        constraint type, and assessment inputs."""
+        family = INTERVENTION_FAMILIES.get(candidate.family_id)
+        if not family:
+            return []
+
+        a = self.assessment
+        constraint = a.constraint
+        budget = a.budget_range or "$50K–100K"
+        timeline = a.implementation_timeline or "1–3 months"
+        volume = a.annual_workflow_volume or 0
+        risk = a.business_risk or "Medium"
+
+        # Base templates per family, customized by constraint
+        steps = []
+
+        if family.id == "Workflow_Automation":
+            steps = [
+                {
+                    "step": 1,
+                    "phase": "Process Audit & Baseline Measurement",
+                    "duration": "2–3 weeks",
+                    "owner": "Process Owner + Operations Lead",
+                    "actions": [
+                        "Document the current inbound call handling process end-to-end",
+                        "Map every handoff, tool, and decision point",
+                        f"Measure baseline metrics: volume ({volume:,.0f}/yr), handling time, error rate, response time",
+                        "Identify the 20% of call types that represent 80% of volume",
+                        "Flag exception paths that require human judgment vs automatable paths",
+                    ],
+                    "success_criteria": "Current-state process map complete. Baseline metrics recorded for ≥2 weeks. Top call categories identified.",
+                    "cost": "Internal labor: ~$5K (process owner time)",
+                },
+                {
+                    "step": 2,
+                    "phase": "Vendor Selection & Tool Evaluation",
+                    "duration": "2–4 weeks",
+                    "owner": "IT + Operations Lead",
+                    "actions": [
+                        "Evaluate 3–5 workflow automation platforms (UiPath, Automation Anywhere, Zapier, Microsoft Power Automate)",
+                        "Score against: API availability for CRM integration, exception handling capability, pricing model",
+                        "Run a 2-day proof-of-concept on the top 3 call categories from Step 1",
+                        "Select vendor based on PoC results, total cost of ownership, and support SLA",
+                        f"Validate implementation cost within budget ({budget})",
+                    ],
+                    "success_criteria": "Vendor selected. PoC demonstrates automation on ≥2 call categories. Contract signed within budget.",
+                    "cost": "Platform licenses: $10K–30K/year. PoC: vendor-provided (often free).",
+                },
+                {
+                    "step": 3,
+                    "phase": "Pilot Implementation — Automate Top Call Types",
+                    "duration": "3–4 weeks",
+                    "owner": "IT + Vendor + Process Owner",
+                    "actions": [
+                        "Configure automation for the top 3–5 call types (routing, data lookup, response templating)",
+                        "Build the human escalation handoff for calls the bot cannot resolve",
+                        "Integrate with existing CRM and phone system (API or screen-scraping)",
+                        "Set up monitoring dashboard: calls handled, automation rate, escalation rate, resolution time",
+                        "Run in shadow mode for 1 week before going live",
+                    ],
+                    "success_criteria": "Automation handles ≥70% of targeted call types without escalation. Escalation handoff <30 seconds. Zero critical errors.",
+                    "cost": "Implementation: $30K–60K. Includes vendor professional services + internal IT time.",
+                },
+                {
+                    "step": 4,
+                    "phase": "Gradual Rollout & Exception Handling",
+                    "duration": "4–6 weeks",
+                    "owner": "Operations Lead + Team",
+                    "actions": [
+                        "Expand automation to remaining call categories based on pilot data",
+                        "Train team on new workflow: monitoring the automation dashboard, handling escalations",
+                        "Build feedback loop: weekly review of false positives/negatives, tune automation rules",
+                        "Document standard operating procedure for the new human+automation workflow",
+                        f"Track against target: {family.labor_reduction_pct[1]}% labor reduction, <10% exception rate",
+                    ],
+                    "success_criteria": "Full rollout complete. Team trained. Exception rate <10%. Labor hours reduced by ≥50%.",
+                    "cost": "Internal change management: ~$10K. Additional platform scaling if needed.",
+                },
+                {
+                    "step": 5,
+                    "phase": "Measure, Optimize & Scale",
+                    "duration": "Ongoing (monthly review)",
+                    "owner": "Operations Lead + Executive Sponsor",
+                    "actions": [
+                        "Compare actual vs predicted: labor savings, call resolution time, revenue capture",
+                        "Calculate realized ROI against implementation cost",
+                        "Identify adjacent workflows for automation expansion (outbound, follow-up, scheduling)",
+                        f"Report to executive sponsor: {family.labor_reduction_pct[0]}–{family.labor_reduction_pct[1]}% labor reduction target vs actual",
+                        "Set quarterly automation expansion roadmap",
+                    ],
+                    "success_criteria": f"ROI positive within {candidate.economics.payback_months:.0f} months. Automation expanded to ≥1 adjacent workflow. Executive sign-off on Phase 2.",
+                    "cost": "Ongoing platform cost: $5K–15K/year. Optimization: internal labor.",
+                },
+            ]
+        elif family.id == "AI":
+            steps = [
+                {
+                    "step": 1, "phase": "Data Readiness Assessment & Baseline",
+                    "duration": "2–3 weeks",
+                    "owner": "Data Lead + Process Owner",
+                    "actions": [
+                        "Audit data quality: completeness of call logs, CRM records, outcome data",
+                        "Label minimum 500 examples of correct call handling for training",
+                        "Establish baseline metrics for accuracy, response time, customer satisfaction",
+                        "Identify data gaps and create collection plan",
+                    ],
+                    "success_criteria": "Data quality score ≥70%. 500+ labeled examples. Baseline metrics established.",
+                    "cost": "Internal labor: ~$10K. Data labeling tools: $2K–5K.",
+                },
+                {
+                    "step": 2, "phase": "Model Selection & Prototype",
+                    "duration": "3–4 weeks",
+                    "owner": "AI/ML Lead + IT",
+                    "actions": [
+                        "Evaluate AI options: fine-tuned LLM for intent classification, purpose-built call routing model, or API-based solution",
+                        "Build prototype on historical data, measure precision/recall on held-out test set",
+                        f"Validate prototype handles {a.exception_rate or '<10%'} exception rate",
+                        "Select approach based on accuracy, cost, and integration complexity",
+                    ],
+                    "success_criteria": "Model precision ≥85% on test set. Prototype runs in <2 seconds per call. Cost estimate finalized.",
+                    "cost": "Model development: $20K–50K. API costs during dev: $2K–5K.",
+                },
+                {
+                    "step": 3, "phase": "Human-in-the-Loop Pilot",
+                    "duration": "4–6 weeks",
+                    "owner": "AI Lead + Operations + Compliance",
+                    "actions": [
+                        "Deploy AI in shadow mode: AI classifies calls, human confirms/rejects",
+                        "Build escalation path: AI routes low-confidence calls to human immediately",
+                        "Monitor false positive rate — must stay below 5% for go-live",
+                        f"Assess risk level: {risk}. If critical/safety risk, add compliance review checkpoint",
+                    ],
+                    "success_criteria": "AI + human accuracy ≥95%. False positive rate <5%. Escalation path tested end-to-end.",
+                    "cost": "Deployment: $30K–80K. Shadow monitoring: $5K.",
+                },
+                {
+                    "step": 4, "phase": "Controlled Go-Live & Monitoring",
+                    "duration": "4–8 weeks",
+                    "owner": "AI Lead + Operations + IT",
+                    "actions": [
+                        "Go live with AI-first handling for top call categories",
+                        "24/7 monitoring for first 2 weeks with rapid rollback capability",
+                        "Weekly accuracy audits on random sample of AI-handled calls",
+                        "Train team on AI collaboration: reviewing AI decisions, flagging errors",
+                    ],
+                    "success_criteria": "AI handling ≥70% of calls independently. Accuracy maintained ≥93%. No critical errors.",
+                    "cost": "Production infrastructure: $10K–30K/month. Ongoing monitoring.",
+                },
+                {
+                    "step": 5, "phase": "Continuous Learning & Expansion",
+                    "duration": "Ongoing (monthly)",
+                    "owner": "AI Lead + Executive Sponsor",
+                    "actions": [
+                        "Retrain model monthly on new data to improve accuracy",
+                        "Expand to additional call categories and languages",
+                        "Integrate AI insights into CRM for proactive customer engagement",
+                        "Report ROI: labor savings, revenue capture, customer satisfaction delta",
+                    ],
+                    "success_criteria": "Model accuracy improving month-over-month. Expanded to ≥2 new workflows. ROI positive.",
+                    "cost": "Ongoing inference: $5K–20K/month. Continuous training: $5K–10K/month.",
+                },
+            ]
+        else:
+            # Generic implementation path for other families
+            steps = [
+                {
+                    "step": 1, "phase": "Discovery & Baseline",
+                    "duration": "2–3 weeks",
+                    "owner": "Process Owner",
+                    "actions": [
+                        "Document current state end-to-end",
+                        "Measure baseline metrics",
+                        "Identify root causes of the constraint",
+                    ],
+                    "success_criteria": "Complete process map. Baseline measured.",
+                    "cost": "Internal labor: ~$5K",
+                },
+                {
+                    "step": 2, "phase": "Solution Design",
+                    "duration": "2–3 weeks",
+                    "owner": "Process Owner + IT",
+                    "actions": [
+                        "Design target state with the recommended intervention",
+                        "Evaluate vendor options if applicable",
+                        "Build cost model and ROI projection",
+                    ],
+                    "success_criteria": "Solution design approved. Vendor selected or build decision made.",
+                    "cost": "Internal labor: ~$10K",
+                },
+                {
+                    "step": 3, "phase": "Pilot",
+                    "duration": "3–4 weeks",
+                    "owner": "Process Owner + Team",
+                    "actions": [
+                        "Implement on a subset of the workflow",
+                        "Monitor and measure against baseline",
+                        "Iterate based on pilot results",
+                    ],
+                    "success_criteria": "Pilot demonstrates measurable improvement. Team trained.",
+                    "cost": "Variable by intervention",
+                },
+                {
+                    "step": 4, "phase": "Full Rollout",
+                    "duration": "4–6 weeks",
+                    "owner": "Operations Lead",
+                    "actions": [
+                        "Expand to full scope",
+                        "Train all team members",
+                        "Document new standard operating procedure",
+                    ],
+                    "success_criteria": "Full rollout complete. All team members trained.",
+                    "cost": "Variable by intervention",
+                },
+                {
+                    "step": 5, "phase": "Optimize & Scale",
+                    "duration": "Ongoing",
+                    "owner": "Executive Sponsor",
+                    "actions": [
+                        "Measure realized vs projected outcomes",
+                        "Identify expansion opportunities",
+                        "Report to leadership",
+                    ],
+                    "success_criteria": "ROI positive. Expansion plan approved.",
+                    "cost": "Ongoing operational cost",
+                },
+            ]
+
+        return steps
 
     def _score_problem_fit(self, family_id: str) -> DimensionScore:
         w = self.constraint.get("intervention_weights", {}).get(family_id, 0.3)
