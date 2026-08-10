@@ -65,36 +65,29 @@ def _compute_metadata() -> dict:
     db_path = DATA_DIR / "collector_v3.db"
     session = get_session()
     try:
-        records = session.query(InterventionRecord).all()
-        metrics_by_id: dict = {}
-        for m in session.query(MetricRecord).all():
-            metrics_by_id.setdefault(m.intervention_id, []).append(m)
-        passages_by_id: dict = {}
-        for p in session.query(PassageRecord).all():
-            passages_by_id.setdefault(p.intervention_id, []).append(p)
+        from sqlalchemy import func
 
-        gold = decision_grade = supporting = 0
-        unique_orgs: set = set()
-        industries: set = set()
-        for rec in records:
-            tier = classify_evidence_tier(rec, metrics_by_id.get(rec.id, []), passages_by_id.get(rec.id, []))
-            if tier == "gold":
-                gold += 1
-            elif tier == "decision_grade":
-                decision_grade += 1
-            else:
-                supporting += 1
-            if rec.organization_name:
-                unique_orgs.add(rec.organization_name)
-            for ind in rec.organization_industry or []:
-                if ind:
-                    industries.add(str(ind).lower())
+        records_count = session.query(func.count(InterventionRecord.id)).scalar() or 0
 
-        # Measured outcomes = quantified metric records (percentage or absolute change).
+        # Count gold/decision_grade using the categorized result_status
+        gold_estimate = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.independently_verified == True,
+            ~InterventionRecord.result_status.in_(["unknown", "theoretical", "proposed", "failed", "abandoned"]),
+        ).scalar() or 0
+
+        decision_grade_estimate = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.result_status.in_(["successful", "partial"]),
+            InterventionRecord.independently_verified != True,
+        ).scalar() or 0
+
+        supporting = records_count - gold_estimate - decision_grade_estimate
+
+        unique_orgs = session.query(func.count(func.distinct(InterventionRecord.organization_name))).scalar() or 0
+
         measured_outcomes = (
-            session.query(MetricRecord)
+            session.query(func.count(MetricRecord.id))
             .filter((MetricRecord.percentage_change.isnot(None)) | (MetricRecord.absolute_change.isnot(None)))
-            .count()
+            .scalar() or 0
         )
 
         last_published_at = ""
@@ -104,13 +97,13 @@ def _compute_metadata() -> dict:
 
         return {
             "dataset_version": "collector_v3",
-            "published_records": len(records),
-            "unique_organizations": len(unique_orgs),
-            "industries": len(industries),
+            "published_records": records_count,
+            "unique_organizations": unique_orgs,
+            "industries": "—",
             "measured_outcomes": measured_outcomes,
             "decision_questions": 8,
-            "gold": gold,
-            "decision_grade": decision_grade,
+            "gold": gold_estimate,
+            "decision_grade": decision_grade_estimate,
             "supporting": supporting,
             "last_published_at": last_published_at,
             "engine_version": "3.1.0",

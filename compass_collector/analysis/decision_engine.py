@@ -1017,10 +1017,6 @@ class DecisionEngine:
         # Conservative payback: assume 50% savings in first month (ramp-up)
         payback = (impl_cost / (net_annual * 0.5) * 12) if net_annual > 0 else float('inf')
 
-        net_annual = expected_savings - annual_op
-        # Conservative payback: assume 50% savings in first month (ramp-up)
-        payback = (impl_cost / (net_annual * 0.5) * 12) if net_annual > 0 else float('inf')
-
         three_year = (net_annual * 3 - impl_cost) / max(impl_cost, 1)
 
         return InterventionEconomics(

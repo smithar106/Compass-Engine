@@ -239,6 +239,14 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
         status = ex.get("status", "")
         problem = ex.get("problem", "") or ""
         evidence_score = float(ex.get("evidence_score", 0))
+        sim_score = float(ex.get("similarity_score", 0))
+
+        # Engine-determined relevance: direct when high similarity+workflow match
+        decision_rel = "supporting"
+        if sim_score >= 60:
+            decision_rel = "direct"
+        elif sim_score >= 40 and ex.get("similarity_breakdown", {}).get("workflow", {}).get("raw", 0) >= 0.5:
+            decision_rel = "direct"
 
         limitations = _build_comparable_limitations(ex)
 
@@ -263,6 +271,7 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
             similarity_score=ex.get("similarity", 0),
             similarity_dimensions=ex.get("similarity_breakdown", {}),
             relevance_explanation=relevance,
+            decision_relevance=decision_rel,
             limitations=limitations,
             source_title=ex.get("organization", ""),
             source_url="",
@@ -331,7 +340,7 @@ def _pluralize(n: int, word: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Strict financial-estimate policy
+# Phase 2 — Organization-specific financial estimates
 # ---------------------------------------------------------------------------
 # Compass calculates organization-specific savings ONLY when the following
 # inputs are present AND valid:
@@ -340,8 +349,11 @@ def _pluralize(n: int, word: str) -> str:
 #   - loaded labor cost per hour
 #   - evidence-supported improvement range from comparables
 #
-# None of these are collected by the current assessment. The function always
-# returns insufficient_input and describes what is missing.
+# These are collected by the assessment flow (questions: volume, handling-time,
+# loaded-cost) and parsed to numeric values by the assessment-profile builder.
+# When all three are present AND comparable evidence yields an improvement
+# factor, the engine computes a bottom-up dollar estimate. Otherwise it returns
+# insufficient_input with evidence-derived outcome ranges.
 # ---------------------------------------------------------------------------
 
 def _parse_positive_float(value: Optional[str]) -> Optional[float]:

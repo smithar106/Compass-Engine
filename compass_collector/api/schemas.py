@@ -119,6 +119,7 @@ class ComparableEvidence(BaseModel):
     similarity_score: float = 0
     similarity_dimensions: dict = {}
     relevance_explanation: str = ""
+    decision_relevance: str = "supporting"  # direct | supporting | rejected
     limitations: str = ""
     source_title: str = ""
     source_url: str = ""

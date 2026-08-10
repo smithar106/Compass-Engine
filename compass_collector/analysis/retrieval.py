@@ -417,19 +417,68 @@ def summarize_intervention(record: InterventionRecord, metrics: list[MetricRecor
 
 
 def find_comparable_implementations(query: ImplementationQuery) -> dict:
-    """Main retrieval function — finds comparable implementations matching the query."""
+    """Main retrieval function — finds comparable implementations matching the query.
+
+    Stage 1: SQL pre-filter by business function / intervention category / status
+    Stage 2: Python similarity scoring on the filtered candidate pool
+    Stage 3: Organization deduplication
+    """
     session = get_session()
     try:
-        records = session.query(InterventionRecord).all()
+        from sqlalchemy import or_
 
-        # Filter by negative evidence
+        # ── Stage 1: SQL pre-filter (53K → ~500–3000) ──
+        q = session.query(InterventionRecord)
+
+        # Hard filter: must have structured data
+        q = q.filter(InterventionRecord.intervention_families != None)
+        q = q.filter(InterventionRecord.intervention_families != "[]")
+
+        # Business function filter — major reduction
+        if query.business_function:
+            q = q.filter(
+                InterventionRecord.problem_business_function.like(
+                    f'%"{query.business_function}"%'
+                )
+            )
+
+        # Intervention family filter
+        family_conditions = []
+        if query.intervention_category:
+            family_conditions.append(
+                InterventionRecord.intervention_families.like(f'%"{query.intervention_category}"%')
+            )
+        if query.intervention_subcategory:
+            family_conditions.append(
+                InterventionRecord.intervention_families.like(f'%"{query.intervention_subcategory}"%')
+            )
+        if family_conditions:
+            q = q.filter(or_(*family_conditions))
+
+        # Status filter for non-negative queries
         if not query.include_negative:
-            records = [r for r in records if r.result_status not in ("failed", "abandoned")]
+            q = q.filter(
+                ~InterventionRecord.result_status.in_(["failed", "abandoned"])
+            )
 
-        scored = []
+        records = q.limit(5000).all()
         total = len(records)
+        scored = []
+
+        # ── Stage 2: Python similarity scoring ──
+        # Batch-load all metrics for the filtered records
+        record_ids = [r.id for r in records]
+        metrics_map: dict = {}
+        if record_ids:
+            for chunk_start in range(0, len(record_ids), 500):
+                chunk = record_ids[chunk_start:chunk_start + 500]
+                for m in session.query(MetricRecord).filter(
+                    MetricRecord.intervention_id.in_(chunk)
+                ).all():
+                    metrics_map.setdefault(m.intervention_id, []).append(m)
+
         for i, rec in enumerate(records):
-            metrics = session.query(MetricRecord).filter_by(intervention_id=rec.id).all()
+            metrics = metrics_map.get(rec.id, [])
             similarity = compute_similarity(query, rec, metrics)
             if similarity["total"] > 0:
                 scored.append({

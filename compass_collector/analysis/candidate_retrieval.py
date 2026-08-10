@@ -10,6 +10,77 @@ from compass_collector.analysis.retrieval import (
     SIMILARITY_WEIGHTS,
 )
 
+# ── Constraint → relevant intervention families ──
+# Determines which families are plausible enough to retrieve evidence for.
+_CONSTRAINT_FAMILIES: dict[str, list[str]] = {
+    "capacity": ["Staffing", "AI", "Workflow_Automation", "Hybrid", "Process_Redesign", "Software"],
+    "errors":    ["Workflow_Automation", "AI", "Hybrid", "Software", "Process_Redesign"],
+    "speed":     ["Workflow_Automation", "AI", "Software", "Hybrid", "Process_Redesign", "Staffing"],
+    "quality":   ["AI", "Software", "Hybrid", "Process_Redesign", "Workflow_Automation"],
+    "cost":      ["Workflow_Automation", "AI", "Hybrid", "Software", "Process_Redesign"],
+    "visibility":["Software", "AI", "Process_Redesign", "Workflow_Automation"],
+    "compliance":["Software", "Workflow_Automation", "Hybrid", "Process_Redesign", "AI"],
+}
+
+
+def _constraint_families(constraint: str) -> Optional[list[str]]:
+    return _CONSTRAINT_FAMILIES.get(constraint)
+
+
+def _sql_comparable_candidates(
+    session,
+    business_function: str = "",
+    constraint: str = "",
+    duplicate_source_ids: set = None,
+    max_candidates: int = 2000,
+) -> list[InterventionRecord]:
+    """Stage 1: SQL pre-filter to reduce 53K→500–2000 records using indexed
+    fields before Python relevance scoring.
+
+    Uses LIKE on JSON-array intervention_families and problem_business_function
+    for filtering. These are approximate (no JSON parsing overhead) — the Python
+    similarity scorer does the precise matching.
+    """
+    from sqlalchemy import or_
+
+    query = session.query(InterventionRecord)
+
+    # Hard filter: must have intervention families
+    query = query.filter(InterventionRecord.intervention_families.isnot(None))
+    query = query.filter(InterventionRecord.intervention_families != "[]")
+
+    # Build family-match conditions from constraint
+    families = _constraint_families(constraint) if constraint else None
+    family_conditions = []
+    if families:
+        for fam in families:
+            family_conditions.append(
+                InterventionRecord.intervention_families.contains(fam)
+            )
+
+    # Build business-function condition
+    bf_condition = None
+    if business_function:
+        bf_condition = InterventionRecord.problem_business_function.contains(
+            business_function
+        )
+
+    if family_conditions and bf_condition is not None:
+        query = query.filter(or_(bf_condition, *family_conditions))
+    elif family_conditions:
+        query = query.filter(or_(*family_conditions))
+    elif bf_condition is not None:
+        query = query.filter(bf_condition)
+
+    # Exclude known duplicates
+    if duplicate_source_ids and len(duplicate_source_ids) > 0:
+        query = query.filter(
+            ~InterventionRecord.source_id.in_(list(duplicate_source_ids)[:5000])
+        )
+
+    records = query.limit(max_candidates).all()
+    return records
+
 
 def _parse_company_size(size_str: str) -> Optional[int]:
     if not size_str:
@@ -133,10 +204,16 @@ def retrieve_candidates(
 ) -> list[dict]:
     """Retrieve comparable implementation candidates.
 
-    Uses the context-aware ten-factor retrieval when an organization profile or
-    industry context is available; falls back to legacy string similarity
-    otherwise. Candidates carry canonical organization fields + the factor
-    breakdown.
+    Stage 1 — SQL pre-filter (53K → 500–2000):
+        Filters by intervention families (from constraint) and business function
+        using LIKE on JSON-array columns, plus duplicate exclusion.
+
+    Stage 2 — Python relevance scoring:
+        Runs the context-aware or legacy similarity computation on the
+        filtered candidate pool.
+
+    Stage 3 — Diversify:
+        Deduplicates by organization name and selects the top N.
     """
     from compass_collector.analysis.context_retrieval import (
         ContextQuery,
@@ -159,14 +236,32 @@ def retrieve_candidates(
     try:
         duplicate_source_ids = _load_duplicate_ids(session)
 
-        records = session.query(InterventionRecord).all()
+        constraint = getattr(assessment, 'constraint', '') or ''
+        records = _sql_comparable_candidates(
+            session,
+            business_function=assessment.business_function or "",
+            constraint=constraint,
+            duplicate_source_ids=duplicate_source_ids,
+            max_candidates=2000,
+        )
+
         scored = []
+        # Batch-load all metrics for the filtered records in a single query
+        record_ids = [r.id for r in records]
+        metrics_map: dict = {}
+        if record_ids:
+            # Use IN query with chunking for very large candidate sets
+            for chunk_start in range(0, len(record_ids), 500):
+                chunk = record_ids[chunk_start:chunk_start + 500]
+                for m in session.query(MetricRecord).filter(
+                    MetricRecord.intervention_id.in_(chunk)
+                ).all():
+                    metrics_map.setdefault(m.intervention_id, []).append(m)
+
         for rec in records:
-            if rec.source_id in duplicate_source_ids:
-                continue
             if rec.intervention_families is None or len(rec.intervention_families) == 0:
                 continue
-            metrics = session.query(MetricRecord).filter_by(intervention_id=rec.id).all()
+            metrics = metrics_map.get(rec.id, [])
             has_claim = bool(metrics) or bool(rec.outcome_summaries if hasattr(rec, 'outcome_summaries') else False)
             if not has_claim and not rec.intervention_description:
                 continue

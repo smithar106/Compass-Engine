@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -495,101 +496,137 @@ def run_gap_engine(
 ) -> GapReport:
     """Score every decision category and produce the ranked shopping list.
 
-    ``session`` — SQLAlchemy session over the collector DB (created from
-    settings if None). ``demand_override`` — workflow-slug → demand telemetry
-    (analyze/outcome query volume); categories without telemetry use keyword
-    fallback.
+    When ``session`` is None (the recommendation hot path), results are cached
+    for 5 minutes — the evidence corpus changes infrequently (nightly
+    ingestion). When an explicit session is provided (tests, offline scripts),
+    the cache is bypassed.
     """
     if session is None:
+        return _cached_gap_report()
+    return _run_gap_engine_uncached(
+        session=session, top_n=top_n, min_impact=min_impact,
+        demand_override=demand_override,
+    )
+
+
+# ── Gap engine cache ──────────────────────────────────────────────────────────
+
+_GAP_CACHE: Optional[tuple[float, GapReport]] = None
+_GAP_CACHE_TTL = 300  # seconds
+
+
+def _cached_gap_report() -> GapReport:
+    global _GAP_CACHE
+    now = time.time()
+    if _GAP_CACHE is not None and (now - _GAP_CACHE[0]) < _GAP_CACHE_TTL:
+        return _GAP_CACHE[1]
+
+    report = _run_gap_engine_uncached()
+    _GAP_CACHE = (now, report)
+    return report
+
+
+def _run_gap_engine_uncached(
+    session=None, top_n: int = 10, min_impact: float = 0.0, demand_override=None,
+) -> GapReport:
+    own_session = False
+    if session is None:
         from compass_collector.database import get_session
-
         session = get_session()
-    from compass_collector.models.intervention import InterventionRecord
+        own_session = True
 
-    records = session.query(InterventionRecord).all()
-    demand_override = demand_override or {}
+    try:
+        from compass_collector.models.intervention import InterventionRecord
 
-    grouped: dict[tuple, list] = defaultdict(list)
-    for rec in records:
-        grouped[(_record_workflow(rec), _record_function(rec))].append(rec)
+        records = session.query(InterventionRecord).all()
+        demand_override = demand_override or {}
 
-    # Global canonical distributions for target composition.
-    global_industries: Counter = Counter()
-    global_families: Counter = Counter()
-    global_geos: Counter = Counter()
-    global_bands: Counter = Counter()
-    for rec in records:
-        ind = (rec.organization_normalized or {}).get("primary_industry")
-        if isinstance(ind, dict) and ind.get("value"):
-            global_industries[ind["value"]] += 1
-        for e in _norm_entries(rec, "intervention_software_normalized"):
-            if e.get("confidence", 0) >= 0.7 and e.get("family"):
-                global_families[e["family"]] += 1
-        geo = (rec.organization_normalized or {}).get("geography")
-        if isinstance(geo, dict) and geo.get("value"):
-            global_geos[geo["value"]] += 1
-        emp = (rec.organization_normalized or {}).get("employee_count")
-        if isinstance(emp, dict) and emp.get("value"):
-            global_bands[emp["value"]] += 1
+        grouped: dict[tuple, list] = defaultdict(list)
+        for rec in records:
+            grouped[(_record_workflow(rec), _record_function(rec))].append(rec)
 
-    needs: list[EvidenceNeed] = []
-    for (workflow, fn), recs in grouped.items():
-        need_obj = _category_need(
-            workflow, fn, recs,
-            _demand_for(workflow, demand_override),
-            global_industries, global_families, global_geos, global_bands,
-        )
-        need_obj.source_library_priority = score_libraries(need_obj, _library_registry())
-        needs.append(need_obj)
+        # Global canonical distributions for target composition.
+        global_industries: Counter = Counter()
+        global_families: Counter = Counter()
+        global_geos: Counter = Counter()
+        global_bands: Counter = Counter()
+        for rec in records:
+            ind = (rec.organization_normalized or {}).get("primary_industry")
+            if isinstance(ind, dict) and ind.get("value"):
+                global_industries[ind["value"]] += 1
+            for e in _norm_entries(rec, "intervention_software_normalized"):
+                if e.get("confidence", 0) >= 0.7 and e.get("family"):
+                    global_families[e["family"]] += 1
+            geo = (rec.organization_normalized or {}).get("geography")
+            if isinstance(geo, dict) and geo.get("value"):
+                global_geos[geo["value"]] += 1
+            emp = (rec.organization_normalized or {}).get("employee_count")
+            if isinstance(emp, dict) and emp.get("value"):
+                global_bands[emp["value"]] += 1
 
-    needs.sort(key=lambda n: -n.expected_impact)
+        needs: list[EvidenceNeed] = []
+        for (workflow, fn), recs in grouped.items():
+            need_obj = _category_need(
+                workflow, fn, recs,
+                _demand_for(workflow, demand_override),
+                global_industries, global_families, global_geos, global_bands,
+            )
+            need_obj.source_library_priority = score_libraries(need_obj, _library_registry())
+            needs.append(need_obj)
 
-    # Decision Coverage KPI: per function, demand-weighted share of categories
-    # at good+ coverage.
-    by_function: dict[str, dict] = defaultdict(lambda: {"weighted_covered": 0.0, "weighted_total": 0.0, "categories": 0, "good_plus": 0})
-    for n in needs:
-        agg = by_function[n.business_function]
-        agg["categories"] += 1
-        agg["weighted_total"] += max(n.demand, 0.01)
-        if n.decision_coverage in ("good", "excellent"):
-            agg["good_plus"] += 1
-            agg["weighted_covered"] += max(n.demand, 0.01)
-    decision_coverage_by_function = {
-        fn: {
-            "coverage_pct": round(100 * agg["weighted_covered"] / max(agg["weighted_total"], 1e-9), 1),
-            "categories": agg["categories"],
-            "good_plus": agg["good_plus"],
+        needs.sort(key=lambda n: -n.expected_impact)
+
+        # Decision Coverage KPI: per function, demand-weighted share of categories
+        # at good+ coverage.
+        by_function: dict[str, dict] = defaultdict(lambda: {"weighted_covered": 0.0, "weighted_total": 0.0, "categories": 0, "good_plus": 0})
+        for n in needs:
+            agg = by_function[n.business_function]
+            agg["categories"] += 1
+            agg["weighted_total"] += max(n.demand, 0.01)
+            if n.decision_coverage in ("good", "excellent"):
+                agg["good_plus"] += 1
+                agg["weighted_covered"] += max(n.demand, 0.01)
+        decision_coverage_by_function = {
+            fn: {
+                "coverage_pct": round(100 * agg["weighted_covered"] / max(agg["weighted_total"], 1e-9), 1),
+                "categories": agg["categories"],
+                "good_plus": agg["good_plus"],
+            }
+            for fn, agg in sorted(by_function.items(), key=lambda kv: -kv[1]["weighted_total"])
         }
-        for fn, agg in sorted(by_function.items(), key=lambda kv: -kv[1]["weighted_total"])
-    }
 
-    # Dimension coverage across the whole graph.
-    n = len(records)
-    with_workflow = sum(
-        1 for r in records
-        if isinstance(getattr(r, "workflow_normalized", None), dict)
-        and (r.workflow_normalized or {}).get("confidence", 0) >= 0.5
-    )
-    dims = {
-        "canonical_industry": sum(1 for r in records if (r.organization_normalized or {}).get("primary_industry")),
-        "canonical_vendor": sum(1 for r in records if _norm_values(r, "intervention_vendors_normalized")),
-        "canonical_technology": sum(1 for r in records if _norm_values(r, "intervention_software_normalized")),
-        "geography": sum(1 for r in records if (r.organization_normalized or {}).get("geography")),
-        "employee_count": sum(1 for r in records if (r.organization_normalized or {}).get("employee_count")),
-        "workflow": with_workflow,
-    }
-    dimension_coverage = {k: {"n": v, "pct": round(100 * v / max(n, 1), 1)} for k, v in dims.items()}
+        # Dimension coverage across the whole graph.
+        n = len(records)
+        with_workflow = sum(
+            1 for r in records
+            if isinstance(getattr(r, "workflow_normalized", None), dict)
+            and (r.workflow_normalized or {}).get("confidence", 0) >= 0.5
+        )
+        dims = {
+            "canonical_industry": sum(1 for r in records if (r.organization_normalized or {}).get("primary_industry")),
+            "canonical_vendor": sum(1 for r in records if _norm_values(r, "intervention_vendors_normalized")),
+            "canonical_technology": sum(1 for r in records if _norm_values(r, "intervention_software_normalized")),
+            "geography": sum(1 for r in records if (r.organization_normalized or {}).get("geography")),
+            "employee_count": sum(1 for r in records if (r.organization_normalized or {}).get("employee_count")),
+            "workflow": with_workflow,
+        }
+        dimension_coverage = {k: {"n": v, "pct": round(100 * v / max(n, 1), 1)} for k, v in dims.items()}
 
-    shopping = [n for n in needs if n.expected_impact >= min_impact][:top_n]
-    return GapReport(
-        generated_at=datetime.now(timezone.utc).isoformat(),
-        total_records=n,
-        categories=len(needs),
-        needs=needs,
-        shopping_list=shopping,
-        decision_coverage_by_function=decision_coverage_by_function,
-        dimension_coverage=dimension_coverage,
-    )
+        shopping = [n for n in needs if n.expected_impact >= min_impact][:top_n]
+        report = GapReport(
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            total_records=n,
+            categories=len(needs),
+            needs=needs,
+            shopping_list=shopping,
+            decision_coverage_by_function=decision_coverage_by_function,
+            dimension_coverage=dimension_coverage,
+        )
+
+        return report
+    finally:
+        if own_session:
+            session.close()
 
 
 def _library_registry() -> list[dict]:
