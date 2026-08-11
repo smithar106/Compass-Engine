@@ -1251,6 +1251,40 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
             )
             results = find_comparable_implementations(query)
 
+            # ── Broaden criteria if not enough results ──
+            if not results or not results.get("results") or len(results["results"]) < 3:
+                for fallback in [
+                    # Fallback 1: drop intervention_subcategory
+                    ImplementationQuery(
+                        workflow=workflow,
+                        business_function=business_function,
+                        industry=industry,
+                        employee_count=employee_count,
+                        desired_outcome=desired_outcome,
+                        max_results=10,
+                    ),
+                    # Fallback 2: drop business_function too
+                    ImplementationQuery(
+                        workflow=workflow,
+                        industry=industry,
+                        employee_count=employee_count,
+                        desired_outcome=desired_outcome,
+                        max_results=10,
+                    ),
+                    # Fallback 3: keep only workflow + industry
+                    ImplementationQuery(
+                        workflow=workflow,
+                        industry=industry,
+                        max_results=10,
+                    ),
+                ]:
+                    fb_results = find_comparable_implementations(fallback)
+                    if fb_results and fb_results.get("results"):
+                        if not results or not results.get("results") or len(fb_results["results"]) > len(results.get("results", [])):
+                            results = fb_results
+                        if len(results.get("results", [])) >= 3:
+                            break
+
             if results and results.get("results"):
                 top = results["results"][:5]
                 # Normalize similarity from retrieval scale (0-100) to 0-1
