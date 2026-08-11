@@ -1313,6 +1313,7 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                         "status": r.get("status", "unknown"),
                         "vendor_reported": r.get("vendor_reported", False),
                         "independently_verified": r.get("independently_verified", False),
+                        "source_url": r.get("source_url", ""),
                     })
 
                 if "dimensions" in candidate and "evidence_strength" in candidate["dimensions"]:
