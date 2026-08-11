@@ -84,6 +84,21 @@ def _compute_metadata() -> dict:
 
         unique_orgs = session.query(func.count(func.distinct(InterventionRecord.organization_name))).scalar() or 0
 
+        unique_industries = 0
+        try:
+            ind_rows = session.query(InterventionRecord.organization_industry).filter(
+                InterventionRecord.organization_industry.isnot(None)
+            ).all()
+            all_inds = set()
+            for (row,) in ind_rows:
+                if isinstance(row, list):
+                    for ind in row:
+                        if ind and isinstance(ind, str):
+                            all_inds.add(ind.lower().strip())
+            unique_industries = len(all_inds)
+        except Exception:
+            unique_industries = 0
+
         measured_outcomes = (
             session.query(func.count(MetricRecord.id))
             .filter((MetricRecord.percentage_change.isnot(None)) | (MetricRecord.absolute_change.isnot(None)))
@@ -99,7 +114,7 @@ def _compute_metadata() -> dict:
             "dataset_version": "collector_v3",
             "published_records": records_count,
             "unique_organizations": unique_orgs,
-            "industries": "—",
+            "industries": unique_industries,
             "measured_outcomes": measured_outcomes,
             "decision_questions": 8,
             "gold": gold_estimate,
