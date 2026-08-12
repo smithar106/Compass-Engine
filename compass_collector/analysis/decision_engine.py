@@ -1454,15 +1454,34 @@ def get_weights_for_constraint(constraint_type: str) -> dict[str, float]:
 
 # ── Evidence Wiring ───────────────────────────────────────────────────────────
 
+# Decision-relevance thresholds. Retrieval recall may be broad, but a record
+# only qualifies as *evidence* for a decision if it passes a strict relevance
+# gate. 0, 1, 2, or 3 cards are all valid outputs; three is a maximum, never a
+# target. The "minimum 3 comparable implementations" floor is deliberately
+# removed — forcing three cards contaminates the recommendation with evidence
+# that does not support it.
+RELEVANCE_DIRECT = 0.55      # similarity_score >= 55 → directly comparable
+RELEVANCE_SUPPORTING = 0.35  # similarity_score >= 35 → supporting (adjacent but relevant)
+
+
+def _classify_relevance(similarity_score: float) -> str:
+    """Map a raw similarity score (0-100) to an evidence-relevance band."""
+    if similarity_score >= RELEVANCE_DIRECT * 100:
+        return "direct"
+    if similarity_score >= RELEVANCE_SUPPORTING * 100:
+        return "supporting"
+    return "adjacent"
+
+
 def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                   industry: str = "", employee_count: int = None,
                   desired_outcome: str = "") -> dict:
     """Wire evidence into the decision engine output.
 
-    Evidence acts as a FLOOR, not just a dimension. If fewer than 3 comparable
-    implementations exist, the confidence on the entire recommendation drops.
-    The gap engine is queried to check if this (workflow, function) category
-    has known evidence deficiencies.
+    Evidence validates a recommendation; it does not write it. Every record
+    that reaches the Brief must independently pass a decision-relevance
+    threshold. Broadening retrieval is fine for recall; it must not broaden
+    what qualifies as evidence.
     """
     recommendation_confidence = "high"
     confidence_limits = []
@@ -1513,8 +1532,9 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
             )
             results = find_comparable_implementations(query)
 
-            # ── Broaden criteria if not enough results ──
-            if not results or not results.get("results") or len(results["results"]) < 3:
+            # ── Broaden retrieval for RECALL only. This widens the candidate
+            # pool; it does not widen what qualifies as evidence. ──
+            if not results or not results.get("results") or len(results["results"]) < 5:
                 for fallback in [
                     # Fallback 1: drop intervention_subcategory
                     ImplementationQuery(
@@ -1544,31 +1564,58 @@ def wire_evidence(decision_result: dict, workflow: str, business_function: str,
                     if fb_results and fb_results.get("results"):
                         if not results or not results.get("results") or len(fb_results["results"]) > len(results.get("results", [])):
                             results = fb_results
-                        if len(results.get("results", [])) >= 3:
+                        if len(results.get("results", [])) >= 5:
                             break
 
             if results and results.get("results"):
-                top = results["results"][:5]
-                # Normalize similarity from retrieval scale (0-100) to 0-1
-                raw_sim = sum(r.get("similarity_score", 0) for r in top) / len(top)
-                avg_sim = min(1.0, raw_sim / 100.0) if raw_sim > 1.0 else raw_sim
+                # ── Relevance gate: classify every retrieved record, then keep
+                # only direct + supporting. Adjacent records are dropped. ──
+                relevant = []
+                for r in results["results"]:
+                    sim = r.get("similarity_score", 0)
+                    band = _classify_relevance(sim)
+                    if band == "adjacent":
+                        continue
+                    relevant.append((band, r))
 
-                # ── Evidence as floor: fewer than 3 results → low confidence ──
-                if len(top) < 3:
+                top = [r for _, r in relevant][:5]
+
+                if not top:
+                    # Zero relevant evidence for this candidate
                     if candidate == decision_result.get("recommended_intervention"):
                         recommendation_confidence = "low"
                     confidence_limits.append({
-                        "source": "evidence_retrieval",
-                        "reason": f"Only {len(top)} comparable implementations found for {fid} (minimum 3 required for confidence)",
+                        "source": "evidence_relevance",
+                        "reason": f"No directly relevant comparable implementations found for {fid}",
                     })
 
+                direct_count = sum(1 for band, _ in relevant if band == "direct")
+                supporting_count = sum(1 for band, _ in relevant if band == "supporting")
+
+                # Confidence floor: reflect relevance, not raw count.
+                if direct_count == 0 and candidate == decision_result.get("recommended_intervention"):
+                    recommendation_confidence = "low"
+                    confidence_limits.append({
+                        "source": "evidence_relevance",
+                        "reason": f"No directly comparable implementations for {fid}; only {supporting_count} supporting records passed relevance",
+                    })
+
+                # Normalize similarity for the evidence_strength dimension
+                if top:
+                    raw_sim = sum(r.get("similarity_score", 0) for r in top) / len(top)
+                    avg_sim = min(1.0, raw_sim / 100.0) if raw_sim > 1.0 else raw_sim
+                else:
+                    avg_sim = 0.0
+
                 evidence_items = []
-                for r in top:
+                for band, r in relevant[:5]:
                     evidence_items.append({
                         "organization": r.get("organization", "Unknown"),
                         "intervention": r.get("intervention", ""),
                         "similarity": round(r.get("similarity_score", 0), 2),
+                        "relevance": band,
                         "outcome": r.get("outcome_summaries", [])[:2],
+                        "outcome_provenance": "comparable_observed_outcome",
                         "cost_savings": r.get("cost_savings"),
                         "implementation_time": r.get("implementation_time"),
                         "employee_count": r.get("employee_count"),
