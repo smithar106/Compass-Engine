@@ -27,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 AGENT_ENV = {
     "COMPASS_API_URL": "http://127.0.0.1:65535",
+    "AGENT_ENABLED": "true",
     "LLM_PROVIDER": "deepseek",
     "DEEPSEEK_API_KEY": "test-key",
     "AGENT_MAX_DAILY_LLM_USD": "0.50",
