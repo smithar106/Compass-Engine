@@ -207,7 +207,6 @@ class SolutionPattern:
     id: str
     family_id: str
     pattern_name: str
-    decision_title: str
     mechanism: str
     description: str
     requires_software_identified: bool = False
@@ -222,7 +221,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="rules_based_workflow",
         family_id="Workflow_Automation",
         pattern_name="Rules-Based Workflow Automation",
-        decision_title="Automate this workflow with rules-based routing",
         mechanism="rules_based_routing",
         description="Deterministic rules and routing logic to automate repeatable process steps while flagging exceptions for human review.",
         requires_standardization=True,
@@ -232,7 +230,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="workspace_automation",
         family_id="Workflow_Automation",
         pattern_name="Workspace Automation",
-        decision_title="Automate this workflow with Google Workspace",
         mechanism="google_workspace_automation",
         description="Use Google Workspace tools (Apps Script, Sheets, Gmail, Drive) to automate document-driven workflows with lightweight scripting.",
         requires_software_identified=True,
@@ -241,7 +238,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="rpa_automation",
         family_id="Workflow_Automation",
         pattern_name="RPA Automation",
-        decision_title="Automate repetitive processing with RPA",
         mechanism="rpa",
         description="Robotic process automation for high-volume, UI-driven tasks across multiple systems.",
         requires_volume=True,
@@ -251,7 +247,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="integration_automation",
         family_id="Workflow_Automation",
         pattern_name="Integration Automation",
-        decision_title="Connect these systems with API-based automation",
         mechanism="api_integration",
         description="API-based integration to connect systems and eliminate manual data transfer.",
         requires_software_identified=True,
@@ -261,7 +256,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="ai_agent_escalation",
         family_id="AI",
         pattern_name="AI Agent with Human Escalation",
-        decision_title="Deploy an AI agent with human escalation",
         mechanism="ai_agent_human_escalation",
         description="AI handles routine interactions; complex or high-risk cases escalate to human agents with full context.",
         requires_volume=True,
@@ -270,7 +264,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="document_intelligence",
         family_id="AI",
         pattern_name="Document Intelligence",
-        decision_title="Automate document processing with AI",
         mechanism="ai_document_processing",
         description="AI extracts, classifies, and routes information from documents, reducing manual data entry and review.",
         requires_volume=True,
@@ -279,7 +272,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="voice_agent",
         family_id="AI",
         pattern_name="Voice Agent",
-        decision_title="Deploy an AI voice agent for first-line handling",
         mechanism="ai_voice_agent",
         description="AI-powered voice handling for routine inquiries, with escalation to human agents for complex cases.",
         requires_volume=True,
@@ -288,7 +280,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="knowledge_assistant",
         family_id="AI",
         pattern_name="Knowledge Assistant",
-        decision_title="Deploy an AI assistant over internal knowledge",
         mechanism="ai_knowledge_retrieval",
         description="AI-powered search and retrieval over internal documentation, policies, and knowledge bases.",
     ),
@@ -296,7 +287,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="ai_classification",
         family_id="AI",
         pattern_name="AI Classification and Routing",
-        decision_title="Use AI to classify and route incoming requests",
         mechanism="ai_classification_routing",
         description="AI classifies incoming requests and routes them to the appropriate team or system.",
         requires_volume=True,
@@ -306,7 +296,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="existing_saas",
         family_id="Software",
         pattern_name="Purpose-Built Software",
-        decision_title="Implement purpose-built software for this workflow",
         mechanism="saas_implementation",
         description="Deploy existing SaaS or enterprise software to standardize and support the workflow.",
     ),
@@ -314,7 +303,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="internal_application",
         family_id="Software",
         pattern_name="Internal Application",
-        decision_title="Build a lightweight internal application",
         mechanism="internal_application",
         description="Build a lightweight internal tool when off-the-shelf software doesn't fit the workflow.",
         requires_tech_team=True,
@@ -324,7 +312,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="process_standardization",
         family_id="Process_Redesign",
         pattern_name="Process Standardization",
-        decision_title="Standardize the workflow before adding technology",
         mechanism="process_standardization",
         description="Document and standardize the current process to eliminate variation before considering automation or software.",
     ),
@@ -332,7 +319,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="process_simplification",
         family_id="Process_Redesign",
         pattern_name="Process Simplification",
-        decision_title="Redesign the process to eliminate unnecessary work",
         mechanism="eliminate_unnecessary_steps",
         description="Remove redundant steps, approvals, and handoffs to reduce cycle time without new technology.",
     ),
@@ -341,7 +327,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="add_capacity",
         family_id="Staffing",
         pattern_name="Add Dedicated Capacity",
-        decision_title="Add dedicated capacity to this workflow",
         mechanism="staffing_increase",
         description="Add headcount to address a volume or throughput constraint where technology isn't the right next step.",
     ),
@@ -349,7 +334,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="specialist_role",
         family_id="Staffing",
         pattern_name="Specialist Role",
-        decision_title="Assign a specialist to handle high-judgment cases",
         mechanism="specialist_assignment",
         description="Assign a specialist or senior team member to handle cases requiring significant judgment or expertise.",
     ),
@@ -358,7 +342,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="automation_human_hybrid",
         family_id="Hybrid",
         pattern_name="Automation + Human Hybrid",
-        decision_title="Automate routine work with human exception handling",
         mechanism="automation_human_exception",
         description="Automate routine, high-volume steps while routing exceptions and complex cases to human review.",
         requires_standardization=True,
@@ -367,7 +350,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="ai_human_hybrid",
         family_id="Hybrid",
         pattern_name="AI + Human Hybrid",
-        decision_title="Deploy AI for first-line handling with human escalation",
         mechanism="ai_first_line_human_exception",
         description="AI handles first-line interactions and triage; human agents handle escalated and high-judgment cases.",
         requires_volume=True,
@@ -376,7 +358,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="software_process_hybrid",
         family_id="Hybrid",
         pattern_name="Software + Process Hybrid",
-        decision_title="Standardize the process and implement supporting software",
         mechanism="process_plus_software",
         description="Standardize the workflow first, then implement software to support the standardized process.",
         requires_standardization=True,
@@ -386,7 +367,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="discovery_baseline",
         family_id="No_Action",
         pattern_name="Establish Baseline",
-        decision_title="Do not implement yet — establish the operating baseline first",
         mechanism="baseline_measurement",
         description="Measure current-state metrics before committing to an intervention. Insufficient evidence or unstable process warrants discovery first.",
     ),
@@ -394,7 +374,6 @@ SOLUTION_PATTERNS: dict[str, SolutionPattern] = {
         id="data_readiness",
         family_id="No_Action",
         pattern_name="Data Readiness",
-        decision_title="Fix data readiness before committing to implementation",
         mechanism="data_preparation",
         description="Address data quality, completeness, or accessibility issues before the workflow can support automation or AI.",
     ),
@@ -1284,13 +1263,11 @@ class DecisionEngine:
 
     # ── Formatting ──
 
-    def _select_solution_pattern(self, c: InterventionCandidate) -> Optional[SolutionPattern]:
+    def _select_solution_pattern(self, c: InterventionCandidate, workflow: str) -> Optional[SolutionPattern]:
         """Select the best solution pattern for an intervention based on assessment inputs."""
         a = self.assessment
         family_id = c.family_id
-        candidates = [
-            p for p in SOLUTION_PATTERNS.values() if p.family_id == family_id
-        ]
+        candidates = [p for p in SOLUTION_PATTERNS.values() if p.family_id == family_id]
         if not candidates:
             return None
 
@@ -1303,7 +1280,6 @@ class DecisionEngine:
         scored = []
         for p in candidates:
             score = 1.0
-            # Prefer patterns that match assessment characteristics
             if p.requires_volume and volume >= 5000:
                 score += 0.3
             elif p.requires_volume and volume < 1000:
@@ -1314,7 +1290,6 @@ class DecisionEngine:
                 score -= 0.3
             if p.requires_tech_team and has_budget:
                 score += 0.1
-            # Prefer simpler patterns when volume or budget is low
             if volume < 2000 and family_id in ("AI", "Software"):
                 score -= 0.2
             scored.append((score, p))
@@ -1322,15 +1297,58 @@ class DecisionEngine:
         scored.sort(key=lambda x: -x[0])
         return scored[0][1]
 
+    def _generate_executive_title(self, workflow: str, family_id: str) -> str:
+        """Generate a CEO-readable executive title from workflow + intervention family.
+        Never includes technology names unless essential to the decision itself."""
+        wf = workflow.replace("_", " ").title() if workflow else "This Workflow"
+
+        titles = {
+            "Workflow_Automation": f"Automate {wf}",
+            "AI": f"Automate {wf}",
+            "Software": f"Implement Software for {wf}",
+            "Process_Redesign": f"Redesign {wf}",
+            "Staffing": f"Add Capacity to {wf}",
+            "Hybrid": f"Improve {wf}",
+            "No_Action": f"Establish Baseline for {wf}",
+        }
+        return titles.get(family_id, f"Improve {wf}")
+
+    def _generate_operating_model_change(self, workflow: str, family_id: str) -> str:
+        """Describe how work changes — the structural shift, not the technology."""
+        wf = workflow.replace("_", " ").lower() if workflow else "this workflow"
+
+        changes = {
+            "Workflow_Automation": f"Move {wf} from manual processing to automated routing with exception-based review.",
+            "AI": f"Move {wf} from manual handling to AI-assisted processing with human escalation for complex cases.",
+            "Software": f"Move {wf} from manual or spreadsheet-based work to a purpose-built software solution.",
+            "Process_Redesign": f"Redesign {wf} to eliminate unnecessary steps and clarify ownership before introducing new technology.",
+            "Staffing": f"Add dedicated capacity to {wf} through additional staffing rather than technology investment.",
+            "Hybrid": f"Combine automation for routine {wf} with human expertise for exceptions and high-judgment cases.",
+            "No_Action": f"Do not invest in new technology for {wf}. Establish the current operating baseline first.",
+        }
+        return changes.get(family_id, f"Improve {wf} through the recommended intervention.")
+
+    def _generate_implementation_pattern(self, pattern: Optional[SolutionPattern]) -> str:
+        """Describe the implementation approach — how it might be accomplished."""
+        if not pattern:
+            return "Implement the recommended approach with a bounded pilot."
+        return pattern.description
+
     def _format_candidate(self, c: InterventionCandidate) -> dict:
-        pattern = self._select_solution_pattern(c)
+        workflow = (self.assessment.workflow or self.assessment.problem_statement or "")
+        pattern = self._select_solution_pattern(c, workflow)
+        executive_title = self._generate_executive_title(workflow, c.family_id)
+        operating_model = self._generate_operating_model_change(workflow, c.family_id)
+        impl_pattern = self._generate_implementation_pattern(pattern)
+
         return {
             "family_id": c.family_id,
             "family_name": c.family_name,
             "overall_score": c.overall_score,
-            "solution_pattern": pattern.id if pattern else None,
-            "mechanism": pattern.mechanism if pattern else c.family_id.lower(),
-            "title": pattern.decision_title if pattern else c.family_name,
+            "executive_title": executive_title,
+            "operating_model_change": operating_model,
+            "implementation_pattern": impl_pattern,
+            "title": executive_title,
             "dimensions": {
                 dim: {"score": s.score, "confidence": s.confidence, "rationale": s.rationale}
                 for dim, s in c.scores.items()
