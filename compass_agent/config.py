@@ -35,6 +35,7 @@ def _parse_bool(raw: str | None, default: bool) -> bool:
 @dataclass
 class Settings:
     compass_api_url: str = ""
+    agent_enabled: bool = True
     llm_provider: str = "deepseek"
     deepseek_api_key: str = ""
     anthropic_api_key: str = ""
@@ -90,6 +91,7 @@ class Settings:
         api_url = str(env.get("COMPASS_API_URL") or "").strip()
         settings = cls(
             compass_api_url=api_url,
+            agent_enabled=_parse_bool(env.get("AGENT_ENABLED"), True),
             llm_provider=str(env.get("LLM_PROVIDER") or "deepseek").strip().lower(),
             deepseek_api_key=str(env.get("DEEPSEEK_API_KEY") or ""),
             anthropic_api_key=str(env.get("ANTHROPIC_API_KEY") or ""),

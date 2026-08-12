@@ -484,6 +484,13 @@ class Daemon:
         self._install_signal_handlers()
         self._running = True
         self.logger.info("Starting Compass Evidence Agent daemon.")
+
+        # Master kill switch — AGENT_ENABLED=false exits before any LLM work.
+        if not self.settings.agent_enabled:
+            self.logger.info("AGENT_ENABLED=false — daemon disabled, exiting without work.")
+            self._running = False
+            return 0
+
         born = time.time()
         max_lifetime_seconds = 20 * 3600  # 20 hours
 

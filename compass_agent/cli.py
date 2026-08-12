@@ -208,6 +208,11 @@ def cmd_daemon(settings: Settings, problems: list[str]) -> int:
     if problems:
         return _print_config_errors(problems)
 
+    # Master kill switch — exit before any setup/DB download/LLM work.
+    if not settings.agent_enabled:
+        print("AGENT_ENABLED=false — daemon disabled, exiting without work.", flush=True)
+        return 0
+
     if not settings.provider_api_key_configured:
         key_env = settings.missing_provider_key_env or "provider API key"
         print(
