@@ -45,6 +45,11 @@ def _sql_comparable_candidates(
 
     query = session.query(InterventionRecord)
 
+    # Governance gate (migration 2026-08-14): only published evidence is
+    # retrievable for recommendations. Legacy published (verification_status=legacy)
+    # and claim-verified published both pass. Staging/quarantined/rejected excluded.
+    query = query.filter(InterventionRecord.publication_status == "published")
+
     # Hard filter: must have intervention families
     query = query.filter(InterventionRecord.intervention_families.isnot(None))
     query = query.filter(InterventionRecord.intervention_families != "[]")

@@ -69,6 +69,28 @@ def _compute_metadata() -> dict:
 
         records_count = session.query(func.count(InterventionRecord.id)).scalar() or 0
 
+        # Evidence governance counts (migration 2026-08-14)
+        published_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.publication_status == "published"
+        ).scalar() or 0
+        legacy_published_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.publication_status == "published",
+            InterventionRecord.verification_status == "legacy",
+        ).scalar() or 0
+        verified_published_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.publication_status == "published",
+            InterventionRecord.verification_status == "claim_verified",
+        ).scalar() or 0
+        staging_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.publication_status == "staging"
+        ).scalar() or 0
+        quarantined_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.publication_status == "quarantined"
+        ).scalar() or 0
+        rejected_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.publication_status == "rejected"
+        ).scalar() or 0
+
         # Count gold/decision_grade using the categorized result_status
         gold_estimate = session.query(func.count(InterventionRecord.id)).filter(
             InterventionRecord.independently_verified == True,
@@ -112,7 +134,13 @@ def _compute_metadata() -> dict:
 
         return {
             "dataset_version": "collector_v3",
-            "published_records": records_count,
+            "published_records": published_records,
+            "total_intervention_records": records_count,
+            "legacy_published_records": legacy_published_records,
+            "verified_published_records": verified_published_records,
+            "staging_records": staging_records,
+            "quarantined_records": quarantined_records,
+            "rejected_records": rejected_records,
             "unique_organizations": unique_orgs,
             "industries": unique_industries,
             "measured_outcomes": measured_outcomes,

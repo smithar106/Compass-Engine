@@ -91,6 +91,11 @@ class InterventionRecord(Base):
     source_type = Column(String, nullable=True)
     evidence_level = Column(String, nullable=True)
 
+    # Evidence governance (migration 2026-08-14)
+    ingestion_batch_id = Column(String, nullable=True)
+    publication_status = Column(String, default="staging", index=True)
+    verification_status = Column(String, default="legacy", index=True)
+
     # Implementation decision-support fields
     implementation_partner = Column(JSON, default=list)
     implementation_pattern = Column(JSON, default=list)
