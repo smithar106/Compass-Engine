@@ -482,18 +482,22 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
                 ).all():
                     metrics_map.setdefault(m.intervention_id, []).append(m)
 
-        # Batch-load documents (source URL/title) and passages for provenance
+        # Batch-load documents (source URL/title) and passages for provenance.
+        # Select only needed scalar columns to avoid JSON-deserialization errors
+        # on legacy rows that may contain non-JSON values in JSON-typed columns.
         doc_map: dict = {}
         doc_ids = [r.document_id for r in records if r.document_id]
         if doc_ids:
-            for d in session.query(Document).filter(Document.id.in_(doc_ids)).all():
-                doc_map[d.id] = d
+            for row in session.query(Document.id, Document.url, Document.title).filter(
+                Document.id.in_(doc_ids)
+            ).all():
+                doc_map[row[0]] = {"url": row[1], "title": row[2]}
         passage_map: dict = {}
         if record_ids:
-            for p in session.query(PassageRecord).filter(
+            for row in session.query(PassageRecord.intervention_id, PassageRecord.passage_text).filter(
                 PassageRecord.intervention_id.in_(record_ids)
             ).all():
-                passage_map.setdefault(p.intervention_id, []).append(p)
+                passage_map.setdefault(row[0], []).append({"passage_text": row[1]})
 
         for i, rec in enumerate(records):
             metrics = metrics_map.get(rec.id, [])
@@ -544,7 +548,7 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
 
             doc = doc_map.get(rec.document_id)
             passages = passage_map.get(rec.id) or []
-            supporting_passage = passages[0].passage_text if passages else ""
+            supporting_passage = passages[0]["passage_text"] if passages else ""
 
             implementations.append({
                 "id": rec.id,
@@ -569,8 +573,8 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
                 "negatives": neg_flags,
                 "lessons": (rec.failure_conditions or [])[:3] + (rec.implementation_challenges or [])[:2],
                 # Provenance (migration 2026-08-14): source + verification exposed
-                "source_url": doc.url if doc else "",
-                "source_title": doc.title if doc else "",
+                "source_url": doc["url"] if doc else "",
+                "source_title": doc["title"] if doc else "",
                 "supporting_passage": supporting_passage,
                 "verification_status": rec.verification_status or "legacy",
             })
