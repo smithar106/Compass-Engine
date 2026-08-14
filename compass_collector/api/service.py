@@ -273,9 +273,11 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
             relevance_explanation=relevance,
             decision_relevance=decision_rel,
             limitations=limitations,
-            source_title=ex.get("organization", ""),
-            source_url="",
+            source_title=ex.get("source_title", "") or ex.get("organization", ""),
+            source_url=ex.get("source_url", ""),
             publication_date="",
+            supporting_passage=ex.get("supporting_passage", ""),
+            verification_status=ex.get("verification_status", "legacy"),
         ))
     return result
 

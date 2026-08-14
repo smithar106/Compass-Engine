@@ -124,6 +124,9 @@ class ComparableEvidence(BaseModel):
     source_title: str = ""
     source_url: str = ""
     publication_date: str = ""
+    # Evidence governance provenance (migration 2026-08-14)
+    supporting_passage: str = ""
+    verification_status: str = "legacy"  # legacy | source_authentic | document_verified | claim_verified | rejected
 
 
 class NegativeEvidence(BaseModel):

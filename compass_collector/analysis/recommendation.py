@@ -129,6 +129,11 @@ def recommend(
                 "evidence_score": r.get("evidence_score", 50),
                 "cost_savings": r.get("cost_savings"),
                 "implementation_time": r.get("implementation_time"),
+                # Provenance (migration 2026-08-14)
+                "source_url": r.get("source_url", ""),
+                "source_title": r.get("source_title", ""),
+                "supporting_passage": r.get("supporting_passage", ""),
+                "verification_status": r.get("verification_status", "legacy"),
             })
 
         recommended.append({

@@ -8,7 +8,7 @@ import json
 from typing import Optional
 from datetime import datetime
 from compass_collector.database import get_session
-from compass_collector.models.intervention import InterventionRecord, MetricRecord
+from compass_collector.models.intervention import InterventionRecord, MetricRecord, PassageRecord
 from compass_collector.models.document import Document
 
 
@@ -430,6 +430,11 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
         # ── Stage 1: SQL pre-filter (53K → ~500–3000) ──
         q = session.query(InterventionRecord)
 
+        # Governance gate (migration 2026-08-14): only published evidence is
+        # retrievable for recommendations. Legacy published and claim-verified
+        # published both pass; staging/quarantined/rejected are excluded.
+        q = q.filter(InterventionRecord.publication_status == "published")
+
         # Hard filter: must have structured data
         q = q.filter(InterventionRecord.intervention_families != None)
         q = q.filter(InterventionRecord.intervention_families != "[]")
@@ -476,6 +481,19 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
                     MetricRecord.intervention_id.in_(chunk)
                 ).all():
                     metrics_map.setdefault(m.intervention_id, []).append(m)
+
+        # Batch-load documents (source URL/title) and passages for provenance
+        doc_map: dict = {}
+        doc_ids = [r.document_id for r in records if r.document_id]
+        if doc_ids:
+            for d in session.query(Document).filter(Document.id.in_(doc_ids)).all():
+                doc_map[d.id] = d
+        passage_map: dict = {}
+        if record_ids:
+            for p in session.query(PassageRecord).filter(
+                PassageRecord.intervention_id.in_(record_ids)
+            ).all():
+                passage_map.setdefault(p.intervention_id, []).append(p)
 
         for i, rec in enumerate(records):
             metrics = metrics_map.get(rec.id, [])
@@ -524,6 +542,10 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
             if rec.vendor_reported:
                 neg_flags.append("vendor_reported")
 
+            doc = doc_map.get(rec.document_id)
+            passages = passage_map.get(rec.id) or []
+            supporting_passage = passages[0].passage_text if passages else ""
+
             implementations.append({
                 "id": rec.id,
                 "organization": rec.organization_name or "Unknown",
@@ -546,6 +568,11 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
                 "similarity_breakdown": s["similarity"]["components"],
                 "negatives": neg_flags,
                 "lessons": (rec.failure_conditions or [])[:3] + (rec.implementation_challenges or [])[:2],
+                # Provenance (migration 2026-08-14): source + verification exposed
+                "source_url": doc.url if doc else "",
+                "source_title": doc.title if doc else "",
+                "supporting_passage": supporting_passage,
+                "verification_status": rec.verification_status or "legacy",
             })
 
         # Aggregate stats
