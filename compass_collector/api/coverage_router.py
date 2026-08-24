@@ -183,12 +183,16 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
             "result_status, independently_verified, vendor_reported, sample_size, "
             "publication_status, verification_status FROM intervention_records"
         )).fetchall()
+        # MetricRecord also carries legacy rows with corrupt JSON columns; load
+        # only the numeric outcome columns we need via raw SQL.
         metrics_by_id: dict = {}
-        for m in db.query(MetricRecord).all():
-            metrics_by_id.setdefault(m.intervention_id, []).append(m)
-        passages_by_id: dict = {}
-        for p in db.query(PassageRecord).all():
-            passages_by_id.setdefault(p.intervention_id, []).append(p)
+        for m in db.execute(text(
+            "SELECT intervention_id, percentage_change, absolute_change FROM metric_records"
+        )).fetchall():
+            metrics_by_id.setdefault(m[0], []).append({
+                "percentage_change": m[1],
+                "absolute_change": m[2],
+            })
     finally:
         db.close()
 
@@ -236,7 +240,7 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
         if org_name:
             unique_orgs.add(org_name)
         has_metric = any(
-            m.percentage_change is not None or m.absolute_change is not None for m in metrics
+            m.get("percentage_change") is not None or m.get("absolute_change") is not None for m in metrics
         )
         if has_metric:
             quantified_outcomes += 1
@@ -244,7 +248,7 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
             citable += 1
         # Lightweight high-quality proxy using the columns we already loaded:
         # independently-verified, a real sample, and quantified outcomes.
-        quantified = sum(1 for m in metrics if m.percentage_change is not None or m.absolute_change is not None)
+        quantified = sum(1 for m in metrics if m.get("percentage_change") is not None or m.get("absolute_change") is not None)
         if (verified and quantified >= 1) or (sample and sample > 1 and quantified >= 2):
             high_quality += 1
 
