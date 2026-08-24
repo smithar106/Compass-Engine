@@ -77,12 +77,12 @@ class TestRecordTagNormalization(unittest.TestCase):
         self.assertEqual(normalize_record_tag("invoice_processing"), "invoice_processing")
 
     def test_alias_folds_to_canonical(self):
-        # contact_center is NOT a canonical slug → folds to call_routing.
-        # accounts_payable IS canonical → stays as-is (relation layer handles
-        # the alias reconciliation with invoice_processing).
-        self.assertEqual(normalize_record_tag("contact_center"), "call_routing")
-        self.assertEqual(normalize_record_tag("customer_onboarding"), "onboarding")
+        # order_to_cash_otc is NOT a canonical slug → folds to order_processing.
+        # contact_center IS canonical (added upstream) → stays as-is; the
+        # relation layer reconciles it with call_routing as an alias.
         self.assertEqual(normalize_record_tag("order_to_cash_otc"), "order_processing")
+        self.assertEqual(normalize_record_tag("customer_onboarding"), "onboarding")
+        self.assertEqual(normalize_record_tag("contact_center"), "contact_center")
         self.assertEqual(normalize_record_tag("accounts_payable"), "accounts_payable")
 
     def test_unknown_tag_kept_slugified(self):
