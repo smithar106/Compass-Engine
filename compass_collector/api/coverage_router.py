@@ -165,6 +165,7 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
         canonical_workflows_for,
         resolve_query_workflow,
     )
+    from compass_collector.analysis.retrieval import _get_canonical_workflow
 
     canonical = resolve_query_workflow(wf)
     scope = set(canonical_workflows_for(canonical))
@@ -182,20 +183,6 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
     finally:
         db.close()
 
-    def _rec_canonical(rec) -> str:
-        wf_norm = rec.workflow_normalized
-        if isinstance(wf_norm, dict):
-            return str(wf_norm.get("value") or "").strip().lower()
-        if isinstance(wf_norm, str):
-            import json as _json
-            try:
-                d = _json.loads(wf_norm)
-                if isinstance(d, dict):
-                    return str(d.get("value") or "").strip().lower()
-            except Exception:
-                pass
-        return ""
-
     total = 0
     citable = 0
     high_quality = 0
@@ -203,7 +190,7 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
     unique_orgs = set()
 
     for rec in records:
-        tag = _rec_canonical(rec)
+        tag = _get_canonical_workflow(rec)
         if tag not in scope:
             continue
         metrics = metrics_by_id.get(rec.id, [])
