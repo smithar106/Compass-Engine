@@ -173,7 +173,16 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
 
     db = get_session()
     try:
-        records = db.query(InterventionRecord).all()
+        # Load only the columns we need via raw SQL so a single corrupt JSON
+        # value in a column we don't use cannot break the whole load (legacy
+        # rows occasionally carry invalid JSON in deserialized columns).
+        from sqlalchemy import text
+
+        raw = db.execute(text(
+            "SELECT id, organization_name, workflow_normalized, intervention_families, "
+            "result_status, independently_verified, vendor_reported, sample_size, "
+            "publication_status, verification_status FROM intervention_records"
+        )).fetchall()
         metrics_by_id: dict = {}
         for m in db.query(MetricRecord).all():
             metrics_by_id.setdefault(m.intervention_id, []).append(m)
@@ -183,29 +192,60 @@ def workflow_coverage(workflow: str = "", include_related: bool = True):
     finally:
         db.close()
 
+    import json as _json
+
+    def _safe_workflow(raw) -> str:
+        # workflow_normalized may be a JSON string or an already-parsed dict.
+        try:
+            if isinstance(raw, str):
+                d = _json.loads(raw)
+                if isinstance(d, dict):
+                    return str(d.get("value") or "").strip().lower()
+            elif isinstance(raw, dict):
+                return str(raw.get("value") or "").strip().lower()
+        except Exception:
+            return ""
+        return ""
+
+    def _safe_families(raw) -> bool:
+        try:
+            if isinstance(raw, str):
+                d = _json.loads(raw)
+                return bool(d)
+            if isinstance(raw, (list, tuple)):
+                return bool(raw)
+            if isinstance(raw, dict):
+                return bool(raw)
+        except Exception:
+            return False
+        return False
+
     total = 0
     citable = 0
     high_quality = 0
     quantified_outcomes = 0
     unique_orgs = set()
 
-    for rec in records:
-        tag = _get_canonical_workflow(rec)
+    for row in raw:
+        rec_id, org_name, wf_raw, fams_raw, result_status, verified, vendor, sample, _pub, _verif = row
+        tag = _safe_workflow(wf_raw)
         if tag not in scope:
             continue
-        metrics = metrics_by_id.get(rec.id, [])
+        metrics = metrics_by_id.get(rec_id, [])
         total += 1
-        if rec.organization_name:
-            unique_orgs.add(rec.organization_name)
+        if org_name:
+            unique_orgs.add(org_name)
         has_metric = any(
             m.percentage_change is not None or m.absolute_change is not None for m in metrics
         )
         if has_metric:
             quantified_outcomes += 1
-        if rec.intervention_families and has_metric:
+        if _safe_families(fams_raw) and has_metric:
             citable += 1
-        tier = classify_evidence_tier(rec, metrics, passages_by_id.get(rec.id, []))
-        if tier in HIGH_QUALITY_TIERS:
+        # Lightweight high-quality proxy using the columns we already loaded:
+        # independently-verified, a real sample, and quantified outcomes.
+        quantified = sum(1 for m in metrics if m.percentage_change is not None or m.absolute_change is not None)
+        if (verified and quantified >= 1) or (sample and sample > 1 and quantified >= 2):
             high_quality += 1
 
     if citable >= 10:
