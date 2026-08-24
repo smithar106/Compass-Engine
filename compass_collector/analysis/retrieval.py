@@ -490,12 +490,18 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
         q = q.filter(InterventionRecord.intervention_families != None)
         q = q.filter(InterventionRecord.intervention_families != "[]")
 
-        # Business function filter — major reduction
+        # Business function is a SOFT signal, not a hard filter. Many records
+        # carry a canonical workflow tag but no problem_business_function (the
+        # tag is sparse in the corpus), so hard-filtering by business function
+        # silently drops substantively relevant evidence (e.g. onboarding
+        # records with business_function NULL). The workflow taxonomy +
+        # similarity scoring below already rank by true relevance; business
+        # function adds a small bonus inside score_problem_similarity via the
+        # workflow reconciliation. Do not exclude records that lack the tag.
+        # (If business function exists, prefer those rows first for the pool.)
         if query.business_function:
-            q = q.filter(
-                InterventionRecord.problem_business_function.like(
-                    f'%"{query.business_function}"%'
-                )
+            q = q.order_by(
+                InterventionRecord.problem_business_function.isnot(None).desc()
             )
 
         # Intervention family filter
