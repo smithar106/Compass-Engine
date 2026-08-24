@@ -146,6 +146,102 @@ def _public_report(data: dict) -> dict:
     return data
 
 
+@router.get("/coverage/workflow")
+def workflow_coverage(workflow: str = "", include_related: bool = True):
+    """Public per-workflow evidence depth for the prototype decision provider.
+
+    Given a canonical workflow slug (e.g. ``invoice_processing``), report how
+    many citable, high-quality comparable implementations exist for that
+    workflow and its taxonomy aliases/related workflows — so the product can
+    decide "covered" vs "needs more evidence" BEFORE rendering a decision.
+
+    Public (no auth): returns counts only, never record-level detail.
+    """
+    wf = (workflow or "").strip().lower()
+    if not wf:
+        return {"error": "missing workflow parameter"}, 400
+
+    from compass_collector.analysis.workflow_relations import (
+        canonical_workflows_for,
+        resolve_query_workflow,
+    )
+
+    canonical = resolve_query_workflow(wf)
+    scope = set(canonical_workflows_for(canonical))
+    # canonical_workflows_for already includes self + aliases + related.
+
+    db = get_session()
+    try:
+        records = db.query(InterventionRecord).all()
+        metrics_by_id: dict = {}
+        for m in db.query(MetricRecord).all():
+            metrics_by_id.setdefault(m.intervention_id, []).append(m)
+        passages_by_id: dict = {}
+        for p in db.query(PassageRecord).all():
+            passages_by_id.setdefault(p.intervention_id, []).append(p)
+    finally:
+        db.close()
+
+    def _rec_canonical(rec) -> str:
+        wf_norm = rec.workflow_normalized
+        if isinstance(wf_norm, dict):
+            return str(wf_norm.get("value") or "").strip().lower()
+        if isinstance(wf_norm, str):
+            import json as _json
+            try:
+                d = _json.loads(wf_norm)
+                if isinstance(d, dict):
+                    return str(d.get("value") or "").strip().lower()
+            except Exception:
+                pass
+        return ""
+
+    total = 0
+    citable = 0
+    high_quality = 0
+    quantified_outcomes = 0
+    unique_orgs = set()
+
+    for rec in records:
+        tag = _rec_canonical(rec)
+        if tag not in scope:
+            continue
+        metrics = metrics_by_id.get(rec.id, [])
+        total += 1
+        if rec.organization_name:
+            unique_orgs.add(rec.organization_name)
+        has_metric = any(
+            m.percentage_change is not None or m.absolute_change is not None for m in metrics
+        )
+        if has_metric:
+            quantified_outcomes += 1
+        if rec.intervention_families and has_metric:
+            citable += 1
+        tier = classify_evidence_tier(rec, metrics, passages_by_id.get(rec.id, []))
+        if tier in HIGH_QUALITY_TIERS:
+            high_quality += 1
+
+    if citable >= 10:
+        depth = "covered"
+    elif citable >= 4:
+        depth = "developing"
+    elif citable >= 1:
+        depth = "thin"
+    else:
+        depth = "insufficient"
+
+    return {
+        "workflow": canonical,
+        "scope_workflows": sorted(scope),
+        "total": total,
+        "citable": citable,
+        "high_quality": high_quality,
+        "quantified_outcomes": quantified_outcomes,
+        "unique_organizations": len(unique_orgs),
+        "depth": depth,
+    }
+
+
 @router.get("/gaps")
 def evidence_gaps(request: Request = None, top: int = 20, min_impact: float = 0.0):
     """Evidence Gap Engine v2 report — decision coverage KPI + shopping list.
