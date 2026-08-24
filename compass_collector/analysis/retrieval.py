@@ -5,6 +5,7 @@ and returns the closest real implementations ranked by similarity.
 """
 
 import json
+import re
 from typing import Optional
 from datetime import datetime
 from compass_collector.database import get_session
@@ -111,6 +112,26 @@ def _get_components(record: InterventionRecord) -> dict:
     return {}
 
 
+def _get_canonical_workflow(record: InterventionRecord) -> str:
+    """Extract the record's canonical workflow slug (workflow_normalized.value).
+
+    This is the reconciliation key the taxonomy-based workflow matcher needs:
+    the verbose free text in ``intervention_components.workflow`` uses a
+    different vocabulary than query slugs (e.g. records tagged
+    ``accounts_payable`` are substantively about ``invoice_processing``), and
+    free-text overlap alone cannot bridge that gap.
+    """
+    wf = record.workflow_normalized
+    if wf and isinstance(wf, str):
+        try:
+            wf = json.loads(wf)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    if wf and isinstance(wf, dict):
+        return str(wf.get("value") or "").strip().lower()
+    return ""
+
+
 def _employee_count_to_band(count: Optional[int]) -> str:
     """Map employee count to a size band."""
     if count is None:
@@ -142,10 +163,21 @@ def _band_to_range(band: str) -> tuple[Optional[int], Optional[int]]:
 
 
 def score_problem_similarity(query_workflow: str, record: InterventionRecord) -> float:
-    """Score problem statement overlap — how similar is the described problem?"""
+    """Score problem statement overlap — how similar is the described problem?
+
+    The query may be a canonical slug ("invoice_processing") or free text
+    ("Manual invoice processing is slow"). Tokens are normalized by splitting
+    on word boundaries AND underscores/dashes so a slug query still overlaps
+    record vocabulary ("invoice", "processing").
+    """
     if not query_workflow:
         return 0.0
-    q = set(query_workflow.lower().split())
+    q_tokens = re.split(r"[_\-\s/]+", query_workflow.lower())
+    q_tokens = [t for t in q_tokens if t]
+    if not q_tokens:
+        return 0.0
+    q = set(q_tokens)
+
     # Build document from record's problem fields
     rec_parts = []
     if record.problem_statement:
@@ -160,12 +192,20 @@ def score_problem_similarity(query_workflow: str, record: InterventionRecord) ->
     rec_words = set(rec_text.split())
     if not rec_words:
         return 0.0
+
     overlap = q & rec_words
-    # Jaccard with bonus for multi-word phrases
+    # Containment: fraction of query tokens present in the record document.
+    # More meaningful than full Jaccard when the query is a short slug and the
+    # record is a long document.
+    containment = len(overlap) / max(len(q), 1)
+    # Jaccard retained as a secondary signal against the whole document.
     jaccard = len(overlap) / max(len(q), len(rec_words))
-    # Bonus for exact phrase matches (2-word and 3-word phrases)
+
+    # Phrase bonus for exact multi-word matches from the query text.
+    phrase_matches = 0
     q_phrases = set()
-    q_list = query_workflow.lower().split()
+    q_list = re.split(r"[_\-\s/]+", query_workflow.lower())
+    q_list = [t for t in q_list if t]
     for i in range(len(q_list)):
         if i + 1 < len(q_list):
             q_phrases.add(f"{q_list[i]} {q_list[i+1]}")
@@ -173,29 +213,31 @@ def score_problem_similarity(query_workflow: str, record: InterventionRecord) ->
             q_phrases.add(f"{q_list[i]} {q_list[i+1]} {q_list[i+2]}")
     phrase_matches = sum(1 for p in q_phrases if p in rec_text)
     phrase_bonus = min(0.3, phrase_matches * 0.1)
-    return min(1.0, jaccard * 1.5 + phrase_bonus)
+
+    # Blend: containment dominates for short queries; jaccard + phrase refine.
+    return min(1.0, max(containment * 0.8 + jaccard * 0.5, jaccard * 1.5) + phrase_bonus)
 
 
-def score_workflow_similarity(query_workflow: str, record_workflow: str) -> float:
-    """Score workflow match between query and record."""
-    if not query_workflow or not record_workflow:
-        return 0.0
-    q = query_workflow.lower().strip()
-    r = record_workflow.lower().strip()
-    if q == r:
-        return 1.0
-    # Partial match — check if one contains the other
-    if q in r or r in q:
-        return 0.7
-    # Word overlap
-    q_words = set(q.replace("_", " ").replace("-", " ").split())
-    r_words = set(r.replace("_", " ").replace("-", " ").split())
-    if q_words and r_words:
-        overlap = len(q_words & r_words)
-        total = len(q_words | r_words)
-        if total > 0:
-            return 0.5 * (overlap / total)
-    return 0.0
+def score_workflow_similarity(query_workflow: str, record_workflow: str, record_canonical: str = "") -> float:
+    """Score workflow match between query and record.
+
+    Uses the canonical workflow-relations layer (EXACT / ALIAS / RELATED /
+    PARTIAL_TEXT / UNRELATED) when either the query or the record carries a
+    canonical tag, falling back to free-text overlap. The record's canonical
+    tag (``workflow_normalized.value``) is the key reconciliation signal —
+    verbose free text alone cannot bridge different slugs for the same domain
+    (e.g. ``invoice_processing`` vs ``accounts_payable``).
+    """
+    from compass_collector.analysis.workflow_relations import score_workflow_relation
+
+    return score_workflow_relation(query_workflow, record_workflow, record_canonical)["score"]
+
+
+def score_workflow_relation_detailed(query_workflow: str, record_workflow: str, record_canonical: str = "") -> dict:
+    """Workflow similarity with full explainability (match type + matched slugs)."""
+    from compass_collector.analysis.workflow_relations import score_workflow_relation
+
+    return score_workflow_relation(query_workflow, record_workflow, record_canonical)
 
 
 def score_company_similarity(query: ImplementationQuery, record: InterventionRecord) -> float:
@@ -322,9 +364,11 @@ def compute_similarity(query: ImplementationQuery, record: InterventionRecord, m
     """Compute full similarity score with breakdown."""
     comps = _get_components(record)
     record_workflow = comps.get("workflow") or ""
+    record_canonical = _get_canonical_workflow(record)
 
     ps_score = score_problem_similarity(query.workflow, record) * SIMILARITY_WEIGHTS["problem_statement"]
-    wf_score = score_workflow_similarity(query.workflow, record_workflow) * SIMILARITY_WEIGHTS["workflow"]
+    wf_detail = score_workflow_relation_detailed(query.workflow, record_workflow, record_canonical)
+    wf_score = wf_detail["score"] * SIMILARITY_WEIGHTS["workflow"]
     cs_score = score_company_similarity(query, record) * SIMILARITY_WEIGHTS["company_size"]
     ind_score = score_industry_similarity(query, record) * SIMILARITY_WEIGHTS["industry"]
     inv_score = score_intervention_similarity(query, record) * SIMILARITY_WEIGHTS["intervention"]
@@ -337,7 +381,14 @@ def compute_similarity(query: ImplementationQuery, record: InterventionRecord, m
         "max_possible": sum(SIMILARITY_WEIGHTS.values()),
         "components": {
             "problem": {"raw": round(ps_score / SIMILARITY_WEIGHTS["problem_statement"], 2) if SIMILARITY_WEIGHTS["problem_statement"] else 0, "weighted": round(ps_score, 3)},
-            "workflow": {"raw": round(wf_score / SIMILARITY_WEIGHTS["workflow"], 2) if SIMILARITY_WEIGHTS["workflow"] else 0, "weighted": round(wf_score, 3)},
+            "workflow": {
+                "raw": round(wf_score / SIMILARITY_WEIGHTS["workflow"], 2) if SIMILARITY_WEIGHTS["workflow"] else 0,
+                "weighted": round(wf_score, 3),
+                "match_type": wf_detail["match_type"].value if wf_detail.get("match_type") else "",
+                "matched_workflows": wf_detail.get("matched_workflows", []),
+                "query_canonical": wf_detail.get("query_canonical", ""),
+                "record_canonical": wf_detail.get("record_canonical", ""),
+            },
             "company_size": {"raw": round(cs_score / SIMILARITY_WEIGHTS["company_size"], 2) if SIMILARITY_WEIGHTS["company_size"] else 0, "weighted": round(cs_score, 3)},
             "industry": {"raw": round(ind_score / SIMILARITY_WEIGHTS["industry"], 2) if SIMILARITY_WEIGHTS["industry"] else 0, "weighted": round(ind_score, 3)},
             "intervention": {"raw": round(inv_score / SIMILARITY_WEIGHTS["intervention"], 2) if SIMILARITY_WEIGHTS["intervention"] else 0, "weighted": round(inv_score, 3)},

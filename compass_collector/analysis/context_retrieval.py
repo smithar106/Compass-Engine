@@ -23,6 +23,7 @@ from compass_collector.organization.taxonomy import (
 )
 from compass_collector.analysis.retrieval import (
     score_workflow_similarity,
+    score_workflow_relation_detailed,
     score_company_similarity,
 )
 
@@ -257,12 +258,27 @@ def compute_context_similarity(query: ContextQuery, record: Any, metrics: list =
         problem_raw = 0.0
     _add("problem", problem_raw)
 
-    # workflow fit
+    # workflow fit — uses the record's canonical workflow tag (workflow_normalized)
+    # so query slugs like "invoice_processing" reconcile with records tagged
+    # "accounts_payable" / "procurement" via the taxonomy relations layer.
     record_workflow = ""
+    record_canonical = ""
     comps = getattr(record, "intervention_components", None)
     if isinstance(comps, dict):
         record_workflow = str(comps.get("workflow") or "")
-    wf_raw = score_workflow_similarity(query.workflow, record_workflow)
+    wf_norm = getattr(record, "workflow_normalized", None)
+    if isinstance(wf_norm, dict):
+        record_canonical = str(wf_norm.get("value") or "").strip().lower()
+    elif isinstance(wf_norm, str):
+        import json as _json
+        try:
+            _d = _json.loads(wf_norm)
+            if isinstance(_d, dict):
+                record_canonical = str(_d.get("value") or "").strip().lower()
+        except Exception:
+            pass
+    wf_detail = score_workflow_relation_detailed(query.workflow, record_workflow, record_canonical)
+    wf_raw = wf_detail["score"]
     # keyword containment: query slugs ("invoice_processing") vs free-text record
     # workflows ("Order Entry, Invoicing...") — a significant query term present
     # in the record workflow text is a strong workflow signal.
