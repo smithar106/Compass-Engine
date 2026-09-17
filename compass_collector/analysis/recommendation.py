@@ -107,6 +107,19 @@ def recommend(
         family_results = [r for r in comparable["results"] if family_id in
                          [get_family_for_subcategory(f) for f in r.get("intervention_families", [])]]
 
+        # Prefer sourced records when selecting the displayed comparables so the
+        # brief can be traceable. Within each group, keep similarity order.
+        # This does not change the verification bar — it surfaces the
+        # better-documented records first so sourced (exploratory) evidence is
+        # used where it exists, rather than defaulting to unsourced records.
+        family_results = sorted(
+            family_results,
+            key=lambda r: (
+                0 if (r.get("source_url") or "").strip() else 1,
+                -float(r.get("similarity_score", 0) or 0),
+            ),
+        )
+
         top_results = family_results[:3]
         top_summaries = []
         for r in top_results:

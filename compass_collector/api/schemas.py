@@ -127,6 +127,9 @@ class ComparableEvidence(BaseModel):
     # Evidence governance provenance (migration 2026-08-14)
     supporting_passage: str = ""
     verification_status: str = "legacy"  # legacy | source_authentic | document_verified | claim_verified | rejected
+    # Fail-closed evidence mode (verified | exploratory | insufficient).
+    # Only "verified" evidence may support a claim presented as verified.
+    evidence_mode: str = "exploratory"
 
 
 class NegativeEvidence(BaseModel):
@@ -320,6 +323,11 @@ class Recommendation(BaseModel):
     assumptions_detail: list[Assumption] = []
     information_gaps: list[InformationGap] = []
     next_validation_step: Optional[NextValidationStep] = None
+    # Fail-closed evidence classification for this recommendation.
+    # evidence_mode: verified | exploratory | insufficient
+    # claim_kind: finding (verified support) | hypothesis (exploratory only)
+    evidence_mode: str = "exploratory"
+    claim_kind: str = "hypothesis"
 
 
 class RecommendationResponse(BaseModel):
@@ -341,3 +349,8 @@ class RecommendationResponse(BaseModel):
     scoring_config_version: str = ""
     scoring_weights_used: dict = {}
     evidence_graph_timestamp: str = ""
+    # Fail-closed evidence mode for the recommendation as a whole, plus counts.
+    # "verified" only when the supporting comparables are fully verified;
+    # otherwise "exploratory" (sourced, unverified) or "insufficient".
+    evidence_mode: str = "exploratory"
+    evidence_mode_counts: dict = {}

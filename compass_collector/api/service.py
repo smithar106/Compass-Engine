@@ -6,6 +6,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from compass_collector.api.evidence_tier import classify_tier_for_comparable
+from compass_collector.analysis.evidence_mode import (
+    classify_evidence_mode as _evidence_mode,
+    dominant_mode as _dominant_mode,
+    EvidenceMode,
+)
 from compass_collector.api.schemas import (
     InvestigationRequest,
     RecommendationResponse,
@@ -278,6 +283,11 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
             publication_date="",
             supporting_passage=ex.get("supporting_passage", ""),
             verification_status=ex.get("verification_status", "legacy"),
+            evidence_mode=_evidence_mode(
+                ex.get("verification_status", "legacy"),
+                ex.get("source_url", ""),
+                ex.get("supporting_passage", ""),
+            ).value,
         ))
     return result
 
@@ -1424,6 +1434,8 @@ def _placeholder_rec(rank: int) -> Recommendation:
         confidence=Confidence(score=0, label="insufficient", explanation="Insufficient evidence"),
         evidence_summary=EvidenceSummary(),
         impact=ImpactSummary(),
+        evidence_mode="insufficient",
+        claim_kind="hypothesis",
     )
 
 
@@ -1493,6 +1505,16 @@ def _build_recommendations(
         information_gaps = _build_information_gaps(inv, raw_examples, req)
         next_step = _build_next_validation_step(rank, family_id, total, req)
 
+        # Fail-closed classification: verified only when every supporting
+        # comparable is fully verified; otherwise exploratory/insufficient.
+        _valid_modes = {m.value for m in EvidenceMode}
+        comp_modes = [
+            EvidenceMode(c.evidence_mode) if c.evidence_mode in _valid_modes else EvidenceMode.EXPLORATORY
+            for c in comparables
+        ]
+        rec_mode = _dominant_mode(comp_modes) if comp_modes else EvidenceMode.INSUFFICIENT
+        rec_claim_kind = "finding" if any(m == EvidenceMode.VERIFIED for m in comp_modes) else "hypothesis"
+
         rec = Recommendation(
             rank=rank,
             is_compass_choice=rank == 1,
@@ -1522,6 +1544,8 @@ def _build_recommendations(
                 status_breakdown={"total": total, "gold": gold, "decision_grade": decision_grade, "supporting": supporting},
                 average_evidence_score=round(inv.get("evidence_score", 0), 1),
             ),
+            evidence_mode=rec_mode.value,
+            claim_kind=rec_claim_kind,
             outcome_ranges=outcome_ranges,
             comparable_implementations=comparables,
             risks=_build_risks(family_id, comparables, total, assessment_risks),
@@ -1669,6 +1693,23 @@ def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = 
         f"workflow fit, outcome consistency, and organizational similarity."
     )
 
+    # Fail-closed evidence mode for the recommendation as a whole. Only
+    # "verified" when every supporting comparable is fully verified; otherwise
+    # "exploratory" (sourced, unverified) or "insufficient". This gates whether
+    # the recommendation may be presented as verified.
+    top_comparables = top_rec.comparable_implementations if top_rec else []
+    top_modes = [
+        EvidenceMode(c.evidence_mode) if c.evidence_mode in [m.value for m in EvidenceMode]
+        else EvidenceMode.EXPLORATORY
+        for c in top_comparables
+    ]
+    overall_evidence_mode = _dominant_mode(top_modes) if top_modes else EvidenceMode.INSUFFICIENT
+    evidence_mode_counts = {
+        EvidenceMode.VERIFIED.value: sum(1 for m in top_modes if m == EvidenceMode.VERIFIED),
+        EvidenceMode.EXPLORATORY.value: sum(1 for m in top_modes if m == EvidenceMode.EXPLORATORY),
+        EvidenceMode.INSUFFICIENT.value: sum(1 for m in top_modes if m == EvidenceMode.INSUFFICIENT),
+    }
+
     response = RecommendationResponse(
         recommendation_id=run_id,
         status="complete",
@@ -1693,6 +1734,8 @@ def run_recommendation(req: InvestigationRequest, org_profile: Optional[dict] = 
         scoring_config_version=scoring_config.version,
         scoring_weights_used=scoring_weights,
         evidence_graph_timestamp=now.isoformat(),
+        evidence_mode=overall_evidence_mode.value,
+        evidence_mode_counts=evidence_mode_counts,
     )
 
     try:
