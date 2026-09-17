@@ -12,6 +12,7 @@ import json
 import unittest
 from pathlib import Path
 
+import compass_collector.models.intervention  # noqa: F401 — registers table for conftest migration
 from compass_collector.analysis.evidence_comparability import (
     Comparability,
     OutcomeAttribution,
@@ -130,6 +131,18 @@ class TestDocumentProcessAutomationCohort(unittest.TestCase):
         for r in self.records:
             for m in r["metrics"]:
                 self.assertGreater(len(m["passage"]), 20)
+
+    def test_every_record_has_a_pre_intervention_post_flow(self):
+        """The evidence base must show a clear pre -> intervention -> post flow."""
+        for r in self.records:
+            flow = r.get("flow")
+            self.assertIsNotNone(flow, f"{r['id']} missing flow")
+            for key in ("baseline", "intervention", "outcome"):
+                self.assertIn(key, flow, f"{r['id']} missing flow.{key}")
+                self.assertGreater(len(flow[key].get("statement", "")), 5)
+            self.assertIn(flow.get("attribution"), ("explicit", "uncertain", "none"))
+            # the flow's intervention must match the record's intervention
+            self.assertTrue(flow["intervention"]["statement"])
 
 
 if __name__ == "__main__":

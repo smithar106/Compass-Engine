@@ -36,7 +36,24 @@
       "comparability": "direct_implementation",
       "outcome_attribution": "explicit",
       "comparability_reason": "The company documents its own automation program and the source explicitly attributes the productivity outcome to it.",
-      "selection_reason": "Direct implementation with explicit attribution; quantified revenue/FTE and headcount outcome."
+      "selection_reason": "Direct implementation with explicit attribution; quantified revenue/FTE and headcount outcome.",
+      "flow": {
+        "problem": "People-based document processing services delivered manually",
+        "baseline": {
+          "statement": "Revenue per FTE of $18,000 (2007)",
+          "passage": "$18,000 per FTE in 2007"
+        },
+        "intervention": {
+          "statement": "Technology and automation of people-based document processing services",
+          "passage": "One of the most significant investments SourceHOV has made over the years has been in technology to increase the automation of people-based services."
+        },
+        "outcome": {
+          "statement": "Revenue per FTE of $56,000 (2016); headcount reduced by over 1,000 FTEs",
+          "passage": "Revenue per head for SourceHOV has more than tripled ($18,000 per FTE in 2007 to $56,000 per FTE in 2016) with headcount being reduced by over 1,000 FTEs"
+        },
+        "attribution": "explicit",
+        "attribution_passage": "as a result of the adoption of its technology-focused strategy"
+      }
     },
     {
       "id": "ponce-financial-2024",
@@ -67,7 +84,24 @@
       "comparability": "direct_implementation",
       "outcome_attribution": "explicit",
       "comparability_reason": "The company documents its own process-automation and document-digitization program and attributes returns to it.",
-      "selection_reason": "Direct implementation with explicit attribution; process + document workflow automation."
+      "selection_reason": "Direct implementation with explicit attribution; process + document workflow automation.",
+      "flow": {
+        "problem": "Manual document workflows and manual process handling",
+        "baseline": {
+          "statement": "Manual document workflows (pre-2021)",
+          "passage": "Our investment in Salesforce process automation and the digitization of our document workflows, which we began in 2021"
+        },
+        "intervention": {
+          "statement": "Salesforce process automation + document workflow digitization",
+          "passage": "Our investment in Salesforce process automation and the digitization of our document workflows"
+        },
+        "outcome": {
+          "statement": "Time-saving efficiencies; reduced document storage/handling/destruction costs; more comprehensive customer view",
+          "passage": "We are beginning to see returns on these investments in the form of time-saving efficiencies, reduced costs of document storage, handling and destruction, and a more comprehensive view of our customer relationships and opportunities."
+        },
+        "attribution": "explicit",
+        "attribution_passage": "returns on these investments in the form of time-saving efficiencies, reduced costs"
+      }
     },
     {
       "id": "fvcbankcorp-rpa-2024",
@@ -98,7 +132,24 @@
       "comparability": "direct_implementation",
       "outcome_attribution": "explicit",
       "comparability_reason": "The bank documents its own RPA implementation and attributes processing-time and hour savings to it.",
-      "selection_reason": "Direct implementation with explicit attribution; quantified processing-time and hours-saved outcomes."
+      "selection_reason": "Direct implementation with explicit attribution; quantified processing-time and hours-saved outcomes.",
+      "flow": {
+        "problem": "Repetitive manual reporting and process work taking hours",
+        "baseline": {
+          "statement": "Repetitive manual processes taking hours",
+          "passage": "reduced processing time from hours to minutes"
+        },
+        "intervention": {
+          "statement": "Robotic process automation for repetitive reporting and process work",
+          "passage": "Robotic process automation"
+        },
+        "outcome": {
+          "statement": "Processing time reduced from hours to minutes; hundreds of hours saved",
+          "passage": "Robotic process automation have reduced risk of error and reduced processing time from hours to minutes. Collectively hundreds of hours have been saved on daily, weekly, monthly and periodic repetitive manual processes."
+        },
+        "attribution": "explicit",
+        "attribution_passage": "Robotic process automation have reduced risk of error and reduced processing time"
+      }
     },
     {
       "id": "bpo-canadiantire-docdigitization-2007",
@@ -135,7 +186,24 @@
       "comparability": "direct_implementation",
       "outcome_attribution": "explicit",
       "comparability_reason": "A document-management implementation with results explicitly listed as the outcome of the deployment.",
-      "selection_reason": "Direct implementation with explicit attribution; multiple documented business outcomes."
+      "selection_reason": "Direct implementation with explicit attribution; multiple documented business outcomes.",
+      "flow": {
+        "problem": "Manual scanning and processing of in-store credit card and banking documents",
+        "baseline": {
+          "statement": "Manual scan/processing of credit card and banking documents",
+          "passage": "document management system to scan and process all in-store credit card applications and other banking documents"
+        },
+        "intervention": {
+          "statement": "Document management system for capture and workflow",
+          "passage": "BPOMS implemented a document management system to scan and process all in-store credit card applications and other banking documents"
+        },
+        "outcome": {
+          "statement": "Faster approvals at lower unit cost; improved data accuracy; peak-volume handling without peak staffing",
+          "passage": "Results: Faster approval of credit card and loan applications at a lower unit cost; Improved accuracy of data captured; ... Ability to deal with high business volumes during holiday seasons without having to staff to meet peak demand period"
+        },
+        "attribution": "explicit",
+        "attribution_passage": "Results: Faster approval of credit card and loan applications at a lower unit cost"
+      }
     },
     {
       "id": "therealreal-automation-2020",
@@ -166,7 +234,24 @@
       "comparability": "direct_implementation",
       "outcome_attribution": "uncertain",
       "comparability_reason": "The company documents its own automation of pricing/copywriting/retouching at scale, but the financial benefit is stated as an expectation, not a reported result.",
-      "selection_reason": "Direct implementation; scale reported, but attribution of the business benefit is not yet established (partial)."
+      "selection_reason": "Direct implementation; scale reported, but attribution of the business benefit is not yet established (partial).",
+      "flow": {
+        "problem": "Manual pricing, copywriting, and photo retouching at scale",
+        "baseline": {
+          "statement": "Manual pricing/copywriting/photo retouching",
+          "passage": "We exited Q4 automating the pricing of 80% of unit volume"
+        },
+        "intervention": {
+          "statement": "Automation of pricing, copywriting, and photo retouching",
+          "passage": "automating the pricing ... copywriting ... and photo retouching"
+        },
+        "outcome": {
+          "statement": "80% of pricing volume, 84% of copywriting, 85% of photo retouching automated",
+          "passage": "We exited Q4 automating the pricing of 80% of unit volume, copywriting of 84% ... and photo retouching of 85%."
+        },
+        "attribution": "uncertain",
+        "attribution_passage": "we expect our automation efforts to meaningfully contribute to operating leverage"
+      }
     }
   ]
 }

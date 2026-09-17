@@ -50,6 +50,10 @@ def _sql_comparable_candidates(
     # and claim-verified published both pass. Staging/quarantined/rejected excluded.
     query = query.filter(InterventionRecord.publication_status == "published")
 
+    # Evidence-flow gate: only records with a clear pre -> intervention -> post
+    # flow + attribution are usable for recommendations (fail-closed).
+    query = query.filter(InterventionRecord.evidence_status == "flow_complete")
+
     # Hard filter: must have intervention families
     query = query.filter(InterventionRecord.intervention_families.isnot(None))
     query = query.filter(InterventionRecord.intervention_families != "[]")

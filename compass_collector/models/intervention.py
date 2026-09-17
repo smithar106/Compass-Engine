@@ -95,6 +95,11 @@ class InterventionRecord(Base):
     ingestion_batch_id = Column(String, nullable=True)
     publication_status = Column(String, default="staging", index=True)
     verification_status = Column(String, default="legacy", index=True)
+    # Evidence-flow status: does the record show a clear pre -> intervention ->
+    # post flow with attribution? "flow_complete" records are usable by the
+    # recommendation engine; "archived" records are retained but excluded from
+    # retrieval (they lack the flow). Default is fail-closed: archived.
+    evidence_status = Column(String, default="archived", index=True)
 
     # Implementation decision-support fields
     implementation_partner = Column(JSON, default=list)

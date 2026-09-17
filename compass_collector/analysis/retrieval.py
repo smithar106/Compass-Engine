@@ -486,6 +486,11 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
         # published both pass; staging/quarantined/rejected are excluded.
         q = q.filter(InterventionRecord.publication_status == "published")
 
+        # Evidence-flow gate: only records with a clear pre -> intervention ->
+        # post flow + attribution are usable for recommendations. Records
+        # without the flow are archived and excluded (fail-closed).
+        q = q.filter(InterventionRecord.evidence_status == "flow_complete")
+
         # Hard filter: must have structured data
         q = q.filter(InterventionRecord.intervention_families != None)
         q = q.filter(InterventionRecord.intervention_families != "[]")

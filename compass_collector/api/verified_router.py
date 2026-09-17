@@ -64,6 +64,8 @@ def verified_evidence(workflow: str = ""):
             "what_it_establishes": r.get("what_it_establishes"),
             "metrics": r.get("metrics", []),
             "source": r.get("source", {}),
+            # pre -> intervention -> post flow (explicit)
+            "flow": r.get("flow", {}),
             # source dimension
             "verification_status": r.get("verification_status", "legacy"),
             # relevance dimensions (independent)

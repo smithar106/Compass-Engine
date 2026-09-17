@@ -32,6 +32,7 @@ def _mk(session, rid, status, verification, families='["Workflow_Automation"]', 
         intervention_title="Test intervention " + rid,
         publication_status=status,
         verification_status=verification,
+        evidence_status="flow_complete",
     ))
 
 

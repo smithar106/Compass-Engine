@@ -106,6 +106,13 @@ def _compute_metadata() -> dict:
 
         supporting = records_count - gold_estimate - decision_grade_estimate
 
+        # Evidence-flow status: records with a clear pre -> intervention -> post
+        # flow + attribution are usable by the recommendation engine; the rest
+        # are archived (retained but excluded from retrieval).
+        flow_complete_records = session.query(func.count(InterventionRecord.id)).filter(
+            InterventionRecord.evidence_status == "flow_complete"
+        ).scalar() or 0
+
         unique_orgs = session.query(func.count(func.distinct(InterventionRecord.organization_name))).scalar() or 0
 
         unique_industries = 0
@@ -150,6 +157,8 @@ def _compute_metadata() -> dict:
             "gold": gold_estimate,
             "decision_grade": decision_grade_estimate,
             "supporting": supporting,
+            "flow_complete_records": flow_complete_records,
+            "archived_records": records_count - flow_complete_records,
             "last_published_at": last_published_at,
             "engine_version": "3.1.0",
         }

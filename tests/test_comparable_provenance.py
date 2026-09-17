@@ -36,6 +36,7 @@ class TestComparableProvenance(unittest.TestCase):
             intervention_title="Automated triage", intervention_description="automated triage implementation",
             problem_statement="automated triage of high volume work",
             publication_status="published", verification_status="claim_verified",
+            evidence_status="flow_complete",
         )
         s.add(rec)
         s.add(PassageRecord(id="pas-p", intervention_id="rec-p", document_id="doc-p",
