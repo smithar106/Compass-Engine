@@ -288,6 +288,7 @@ def _classify_comparables(examples: list[dict], family_id: str, already_used: se
                 ex.get("source_url", ""),
                 ex.get("supporting_passage", ""),
             ).value,
+            selection_reason=ex.get("selection_reason", ""),
         ))
     return result
 

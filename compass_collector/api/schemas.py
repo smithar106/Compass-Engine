@@ -130,6 +130,8 @@ class ComparableEvidence(BaseModel):
     # Fail-closed evidence mode (verified | exploratory | insufficient).
     # Only "verified" evidence may support a claim presented as verified.
     evidence_mode: str = "exploratory"
+    # Why this comparable was selected for display (relevance + sourcing).
+    selection_reason: str = ""
 
 
 class NegativeEvidence(BaseModel):

@@ -121,3 +121,35 @@ class TestClaimKind(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSelectTopComparables(unittest.TestCase):
+    """Sourced-first selection must stay bounded by relevance."""
+
+    def _r(self, org, sim, sourced=False):
+        return {"organization": org, "similarity_score": sim, "source_url": "https://x.gov/y" if sourced else ""}
+
+    def test_sourced_record_does_not_displace_much_more_relevant_unsourced(self):
+        from compass_collector.analysis.recommendation import select_top_comparables
+        results = [
+            self._r("StrongUnsourced", 80, sourced=False),
+            self._r("WeakSourced", 10, sourced=True),
+        ]
+        top = select_top_comparables(results, limit=3)
+        self.assertEqual(top[0]["organization"], "StrongUnsourced")
+
+    def test_sourced_record_wins_a_near_tie(self):
+        from compass_collector.analysis.recommendation import select_top_comparables
+        results = [
+            self._r("Unsourced", 40, sourced=False),
+            self._r("Sourced", 38, sourced=True),  # 38+5=43 > 40
+        ]
+        top = select_top_comparables(results, limit=3)
+        self.assertEqual(top[0]["organization"], "Sourced")
+
+    def test_selection_reason_recorded(self):
+        from compass_collector.analysis.recommendation import select_top_comparables
+        top = select_top_comparables([self._r("A", 50, sourced=True), self._r("B", 50)], limit=3)
+        for r in top:
+            self.assertTrue(r.get("selection_reason"))
+        self.assertIn("sourced", top[0]["selection_reason"].lower())

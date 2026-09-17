@@ -64,6 +64,44 @@ def get_family_for_subcategory(subcategory: str) -> Optional[str]:
     return None
 
 
+# A sourced record gets this many similarity points when selecting displayed
+# comparables. Bounded so it wins ties/near-ties (surfacing a traceable record)
+# but can NEVER displace a substantially more relevant unsourced record.
+SOURCE_PREFERENCE_BONUS = 5.0
+
+
+def select_top_comparables(family_results: list[dict], limit: int = 3) -> list[dict]:
+    """Select the comparables to display for a family.
+
+    Relevance-first, with a bounded source preference: a record with a linked
+    source gets a small similarity bonus (SOURCE_PREFERENCE_BONUS) so sourced
+    evidence surfaces where relevance is comparable, without replacing
+    substantially more relevant records with weak sourced matches. Each
+    selected record gets a `selection_reason` documenting why it was chosen.
+    """
+    def _is_sourced(r: dict) -> bool:
+        return bool((r.get("source_url") or "").strip())
+
+    def _effective(r: dict) -> float:
+        base = float(r.get("similarity_score", 0) or 0)
+        return base + (SOURCE_PREFERENCE_BONUS if _is_sourced(r) else 0.0)
+
+    ordered = sorted(family_results, key=lambda r: -_effective(r))[:limit]
+    for r in ordered:
+        base = float(r.get("similarity_score", 0) or 0)
+        if _is_sourced(r):
+            r["selection_reason"] = (
+                f"Selected for relevance (similarity {base:.0f}); sourced record "
+                f"preferred within a {SOURCE_PREFERENCE_BONUS:.0f}-point relevance band"
+            )
+        else:
+            r["selection_reason"] = (
+                f"Selected for relevance (similarity {base:.0f}); no equally "
+                f"relevant sourced record ranked above it"
+            )
+    return ordered
+
+
 def recommend(
     workflow: str,
     business_function: str,
@@ -107,20 +145,7 @@ def recommend(
         family_results = [r for r in comparable["results"] if family_id in
                          [get_family_for_subcategory(f) for f in r.get("intervention_families", [])]]
 
-        # Prefer sourced records when selecting the displayed comparables so the
-        # brief can be traceable. Within each group, keep similarity order.
-        # This does not change the verification bar — it surfaces the
-        # better-documented records first so sourced (exploratory) evidence is
-        # used where it exists, rather than defaulting to unsourced records.
-        family_results = sorted(
-            family_results,
-            key=lambda r: (
-                0 if (r.get("source_url") or "").strip() else 1,
-                -float(r.get("similarity_score", 0) or 0),
-            ),
-        )
-
-        top_results = family_results[:3]
+        top_results = select_top_comparables(family_results, limit=3)
         top_summaries = []
         for r in top_results:
             top_summaries.append({
@@ -147,6 +172,7 @@ def recommend(
                 "source_title": r.get("source_title", ""),
                 "supporting_passage": r.get("supporting_passage", ""),
                 "verification_status": r.get("verification_status", "legacy"),
+                "selection_reason": r.get("selection_reason", ""),
             })
 
         recommended.append({

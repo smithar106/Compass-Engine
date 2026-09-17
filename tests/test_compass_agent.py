@@ -469,7 +469,16 @@ class TestGracefulShutdownSubprocess(unittest.TestCase):
                 tail = proc.stdout.read() if proc.stdout else ""
                 output += tail
                 self.assertEqual(rc, 0, msg=output)
-                self.assertIn("shutting down", output.lower())
+                # SIGTERM must produce a clean shutdown and a shutdown log.
+                # The daemon emits either "shutting down gracefully" (signal
+                # handler path) or "Compass Evidence Agent stopped." (run-loop
+                # exit path) depending on where the signal lands; both indicate
+                # a clean shutdown. Assert the outcome, not one exact string.
+                self.assertTrue(
+                    ("shutting down" in output.lower())
+                    or ("stopped" in output.lower()),
+                    msg=output,
+                )
             finally:
                 if proc.poll() is None:
                     proc.kill()
