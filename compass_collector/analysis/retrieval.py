@@ -473,15 +473,9 @@ def _has_flow_classification(session) -> bool:
     The evidence-flow gate must only be applied after classification has run;
     otherwise an unclassified DB (all defaults) would be excluded entirely.
     """
-    try:
-        return (
-            session.query(InterventionRecord.id)
-            .filter(InterventionRecord.evidence_status == "flow_complete")
-            .first()
-            is not None
-        )
-    except Exception:
-        return False
+    from compass_collector.analysis.evidence_flow import is_classified
+
+    return is_classified(session)
 
 
 def find_comparable_implementations(query: ImplementationQuery) -> dict:

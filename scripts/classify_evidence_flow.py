@@ -38,66 +38,7 @@ from compass_collector.database import get_session, init_db
 from compass_collector.models.intervention import InterventionRecord, MetricRecord
 
 
-def classify(session) -> dict:
-    metrics: dict = {}
-    for m in session.query(MetricRecord).all():
-        metrics.setdefault(m.intervention_id, []).append(m)
-
-    records = session.query(InterventionRecord).all()
-
-    def has_pre(r, ms) -> bool:
-        return (
-            bool(r.has_baseline)
-            or bool(r.problem_baseline_description)
-            or any(m.baseline_value is not None for m in ms)
-        )
-
-    def has_post(ms) -> bool:
-        return any(
-            m.post_value is not None
-            or m.percentage_change is not None
-            or m.absolute_change is not None
-            for m in ms
-        )
-
-    def has_intervention(r) -> bool:
-        return bool(r.intervention_families) and bool(r.intervention_title)
-
-    def has_source(r) -> bool:
-        return bool(r.document_id)
-
-    def has_attribution(r) -> bool:
-        return bool(r.outcome_provenance)
-
-    flow_ids: list[str] = []
-    tiers = Counter()
-    keep_by_provenance = Counter()
-    keep_by_source_type = Counter()
-
-    for r in records:
-        ms = metrics.get(r["id"] if isinstance(r, dict) else r.id, [])
-        pre, post = has_pre(r, ms), has_post(ms)
-        interv, src, attr = has_intervention(r), has_source(r), has_attribution(r)
-        core = pre and post and interv
-        if core:
-            tiers["pre+intervention+post"] += 1
-        if core and src:
-            tiers["+source"] += 1
-        if core and src and attr:
-            tiers["+attribution (flow_complete)"] += 1
-            flow_ids.append(r.id)
-            keep_by_provenance[r.outcome_provenance or "none"] += 1
-            keep_by_source_type[r.source_type or "none"] += 1
-
-    return {
-        "total": len(records),
-        "tiers": dict(tiers),
-        "flow_complete": len(flow_ids),
-        "archived": len(records) - len(flow_ids),
-        "keep_by_provenance": dict(keep_by_provenance),
-        "keep_by_source_type": dict(keep_by_source_type),
-        "flow_ids": flow_ids,
-    }
+from compass_collector.analysis.evidence_flow import classify_evidence_flow as classify  # noqa: E402
 
 
 def main() -> None:

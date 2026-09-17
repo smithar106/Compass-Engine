@@ -215,6 +215,29 @@ def startup_log():
             logger.error("FATAL: Database is empty. Engine cannot start without records.")
             sys.exit(1)
 
+        # Evidence-flow classification (idempotent): mark records without a clear
+        # pre -> intervention -> post flow + attribution as archived, so only
+        # usable evidence feeds recommendations. Runs once (skipped thereafter).
+        try:
+            from compass_collector.analysis.evidence_flow import (
+                is_classified,
+                apply_evidence_flow,
+                classify_evidence_flow,
+            )
+
+            if not is_classified(session):
+                result = classify_evidence_flow(session)
+                updated = apply_evidence_flow(session)
+                logger.info(
+                    "Evidence-flow classification applied: "
+                    f"{result['flow_complete']} flow_complete, "
+                    f"{result['archived']} archived ({updated} rows updated)"
+                )
+            else:
+                logger.info("Evidence-flow classification already present")
+        except Exception:
+            logger.warning("Evidence-flow classification failed", exc_info=True)
+
         tier1 = session.query(InterventionRecord).filter(
             InterventionRecord.result_status.in_(["successful", "partial"])
         ).count()
