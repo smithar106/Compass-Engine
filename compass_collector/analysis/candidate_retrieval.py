@@ -51,8 +51,11 @@ def _sql_comparable_candidates(
     query = query.filter(InterventionRecord.publication_status == "published")
 
     # Evidence-flow gate: only records with a clear pre -> intervention -> post
-    # flow + attribution are usable for recommendations (fail-closed).
-    query = query.filter(InterventionRecord.evidence_status == "flow_complete")
+    # flow + attribution are usable for recommendations. Applied only once the
+    # DB has been classified, so an unclassified corpus is not excluded.
+    from compass_collector.analysis.retrieval import _has_flow_classification
+    if _has_flow_classification(session):
+        query = query.filter(InterventionRecord.evidence_status == "flow_complete")
 
     # Hard filter: must have intervention families
     query = query.filter(InterventionRecord.intervention_families.isnot(None))

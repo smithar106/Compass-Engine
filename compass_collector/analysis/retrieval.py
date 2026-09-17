@@ -467,6 +467,23 @@ def summarize_intervention(record: InterventionRecord, metrics: list[MetricRecor
     return f"{org} {outcome} via {intervention_short}"
 
 
+def _has_flow_classification(session) -> bool:
+    """True once the DB has been classified (>=1 flow_complete record).
+
+    The evidence-flow gate must only be applied after classification has run;
+    otherwise an unclassified DB (all defaults) would be excluded entirely.
+    """
+    try:
+        return (
+            session.query(InterventionRecord.id)
+            .filter(InterventionRecord.evidence_status == "flow_complete")
+            .first()
+            is not None
+        )
+    except Exception:
+        return False
+
+
 def find_comparable_implementations(query: ImplementationQuery) -> dict:
     """Main retrieval function — finds comparable implementations matching the query.
 
@@ -487,9 +504,11 @@ def find_comparable_implementations(query: ImplementationQuery) -> dict:
         q = q.filter(InterventionRecord.publication_status == "published")
 
         # Evidence-flow gate: only records with a clear pre -> intervention ->
-        # post flow + attribution are usable for recommendations. Records
-        # without the flow are archived and excluded (fail-closed).
-        q = q.filter(InterventionRecord.evidence_status == "flow_complete")
+        # post flow + attribution are usable for recommendations. Applied only
+        # once the DB has been classified (i.e. at least one flow_complete
+        # record exists); otherwise it would exclude an unclassified corpus.
+        if _has_flow_classification(session):
+            q = q.filter(InterventionRecord.evidence_status == "flow_complete")
 
         # Hard filter: must have structured data
         q = q.filter(InterventionRecord.intervention_families != None)
