@@ -9,7 +9,7 @@ from compass_collector.api.service import (
     _generate_specific_intervention, _build_ranking_explanation,
     _build_assumptions_detail, _build_information_gaps, _build_next_validation_step,
     _normalize_metric_name, _normalize_metric_value, _is_company_wide_metric,
-    _build_trace, _build_counterevidence,
+    _build_trace, _build_counterevidence, _build_risks,
 )
 from compass_collector.api.report import generate_report_html
 
@@ -270,11 +270,12 @@ if __name__ == "__main__":
 
 
 class TestRecommendationTrace(unittest.TestCase):
-    def _comparable(self, org, status="successful", tier="gold", dims=None, size=1000):
+    def _comparable(self, org, status="successful", tier="gold", dims=None, size=1000, source_url=""):
         return ComparableEvidence(
             record_id=org, organization=org, intervention=f"{org} automation",
             implementation_status=status, evidence_tier=tier,
             organization_size=size,
+            source_url=source_url,
             similarity_dimensions=dims or {"workflow": {"raw": 0.9}, "problem": {"raw": 0.8}},
             normalized_metrics=[],
         )
@@ -294,16 +295,38 @@ class TestRecommendationTrace(unittest.TestCase):
         # sparse size coverage → uncertainty about employee scale
         self.assertIn("employee scale", trace.primary_uncertainty)
 
-    def test_build_counterevidence_surfaces_failed_comparables(self):
+    def test_build_counterevidence_surfaces_sourced_failed_comparable(self):
+        # A named negative claim is only permitted with a linked primary source.
         comps = [
             self._comparable("Good", status="successful", tier="gold"),
-            self._comparable("Bad", status="failed", tier="bronze"),
+            self._comparable("Bad", status="failed", tier="bronze", source_url="https://example.gov/report"),
         ]
         out = _build_counterevidence(comps)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0].organization, "Bad")
         self.assertIn("failed", out[0].reason)
 
+    def test_build_counterevidence_omits_unsourced_named_company(self):
+        # Fail-closed: no source_url → do not name the organization at all.
+        comps = [
+            self._comparable("Good", status="successful", tier="gold"),
+            self._comparable("Bad", status="failed", tier="bronze"),  # no source_url
+        ]
+        self.assertEqual(_build_counterevidence(comps), [])
+
     def test_build_counterevidence_empty_when_all_positive(self):
         comps = [self._comparable("Good", status="successful", tier="gold")]
         self.assertEqual(_build_counterevidence(comps), [])
+
+    def test_build_risks_never_names_companies(self):
+        # The "mixed outcomes" risk must stay generic — evidence tier is a
+        # documentation signal, not a results claim, so no org may be named.
+        comps = [
+            self._comparable("Finastra", status="unknown", tier="supporting"),
+            self._comparable("Tetra Pak", status="successful", tier="supporting"),
+        ]
+        risks = _build_risks("Workflow_Automation", comps, inv_comparable_count=2, assessment_risks=[])
+        for r in risks:
+            self.assertNotIn("Finastra", r.get("explanation", ""))
+            self.assertNotIn("Tetra Pak", r.get("explanation", ""))
+            self.assertNotIn("showed weaker results", r.get("explanation", ""))

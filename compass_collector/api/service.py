@@ -1250,9 +1250,18 @@ def _build_trace(comparables, total: int, gold: int, decision_grade: int, req) -
 
 def _build_counterevidence(comparables) -> list[Counterevidence]:
     """Surface evidence AGAINST the leading recommendation: comparables with
-    failed/abandoned implementations or negative outcome directions."""
+    failed/abandoned implementations or negative outcome directions.
+
+    Named-company rule (see docs/named_company_risk_audit.md): a real company
+    may only be named in a negative context when the record has a linked
+    primary source (source_url). Records without a source are skipped entirely
+    rather than surfaced as an unsourced negative claim about a named party.
+    """
     out: list[Counterevidence] = []
     for c in comparables:
+        # Require a linked primary source before naming an organization.
+        if not (c.source_url or "").strip():
+            continue
         status = (c.implementation_status or "").lower()
         reason = ""
         if status in ("failed", "abandoned"):
@@ -1299,17 +1308,21 @@ def _build_risks(
         })
         seen.add("evidence_limitations")
 
-    failed_orgs = set()
-    for c in comparables:
-        if c.evidence_tier in ("supporting", "bronze") and c.organization:
-            failed_orgs.add(c.organization)
-
-    if failed_orgs:
-        org_names = ", ".join(list(failed_orgs)[:2])
+    # Named-company negative claims are prohibited unless a linked primary
+    # source explicitly documents the specific negative outcome (see
+    # docs/named_company_risk_audit.md). Evidence tier ("supporting"/"bronze")
+    # describes documentation completeness, NOT project results, so it must
+    # never be used to name an organization. Keep this risk generic.
+    has_supporting_tier = any(
+        c.evidence_tier in ("supporting", "bronze") for c in comparables
+    )
+    if has_supporting_tier:
         risks.append({
             "category": "Implementation risk",
-            "title": "Mixed outcomes in comparable implementations",
-            "explanation": f"Some comparable implementations ({org_names}) showed weaker results or encountered challenges. Review their approach and avoid documented pitfalls.",
+            "title": "Outcome documentation varies across comparables",
+            "explanation": "Some comparable implementations have less complete outcome "
+                           "documentation. Review each implementation's conditions and "
+                           "documented pitfalls before selecting an approach.",
             "severity": "medium",
             "likelihood": "moderate",
             "source": "evidence",
