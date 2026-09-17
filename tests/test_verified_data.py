@@ -87,5 +87,50 @@ class TestVerifiedDataIntegrity(unittest.TestCase):
             )
 
 
+class TestDocumentProcessAutomationCohort(unittest.TestCase):
+    """The first DIRECT-IMPLEMENTATION cohort (document/process automation)."""
+
+    def setUp(self):
+        self.data = _load("document_process_automation")
+        self.records = self.data["records"]
+
+    def test_has_at_least_five_records(self):
+        self.assertGreaterEqual(len(self.records), 5)
+
+    def test_all_sources_trusted(self):
+        for r in self.records:
+            url = r["source"]["url"]
+            self.assertTrue(url.startswith("https://"), url)
+            self.assertTrue(any(h in url for h in _TRUSTED), url)
+
+    def test_all_are_direct_implementation(self):
+        for r in self.records:
+            self.assertEqual(r["comparability"], "direct_implementation")
+
+    def test_attribution_is_assigned_and_not_unassessed(self):
+        for r in self.records:
+            self.assertIn(r["outcome_attribution"], ("explicit", "uncertain", "none"))
+
+    def test_at_least_four_support_direct_outcome(self):
+        supporting = [
+            r for r in self.records
+            if supports_direct_outcome_claim(r["comparability"], r["outcome_attribution"])
+        ]
+        self.assertGreaterEqual(len(supporting), 4)
+
+    def test_uncertain_attribution_does_not_support_direct_outcome(self):
+        for r in self.records:
+            if r["outcome_attribution"] != "explicit":
+                self.assertFalse(
+                    supports_direct_outcome_claim(r["comparability"], r["outcome_attribution"]),
+                    f"{r['id']} must not support a direct outcome claim",
+                )
+
+    def test_every_metric_has_a_passage(self):
+        for r in self.records:
+            for m in r["metrics"]:
+                self.assertGreater(len(m["passage"]), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

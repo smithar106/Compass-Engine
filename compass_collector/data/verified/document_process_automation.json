@@ -1,0 +1,172 @@
+{
+  "workflow": "document_process_automation",
+  "category": "Operations",
+  "problem": "Manual document and process handling",
+  "recommendation": "Automated document processing with exception-based human review",
+  "reviewed_at": "2026-08-24",
+  "reviewer": "Compass evidence review",
+  "notes": "First cohort of DIRECT IMPLEMENTATION evidence (acquired via EDGAR full-text, passages verified verbatim). Comparability and outcome attribution are assigned by review and are independent of source verification. Records C1-C4 have explicit intervention->outcome attribution; C5 has direct implementation but uncertain attribution.",
+  "records": [
+    {
+      "id": "exela-sourcehov-2016",
+      "organization": "Exela / SourceHOV",
+      "intervention": "Technology and automation of people-based document processing services",
+      "what_it_establishes": "A document-services firm's own automation program, with an attributed productivity outcome.",
+      "metrics": [
+        {
+          "label": "Revenue per FTE",
+          "value": "$18,000 (2007) -> $56,000 (2016), >3x",
+          "direction": "increase",
+          "passage": "Revenue per head for SourceHOV has more than tripled ($18,000 per FTE in 2007 to $56,000 per FTE in 2016) with headcount being reduced by over 1,000 FTEs as a result of the adoption of its technology-focused strategy."
+        },
+        {
+          "label": "Headcount reduction",
+          "value": ">1,000 FTEs",
+          "direction": "reduction",
+          "passage": "headcount being reduced by over 1,000 FTEs as a result of the adoption of its technology-focused strategy."
+        }
+      ],
+      "source": {
+        "title": "Exela / SourceHOV (SEC exhibit)",
+        "url": "https://www.sec.gov/Archives/edgar/data/0001620179/000110465917040041/a17-15387_2ex99d1.htm",
+        "type": "SEC filing",
+        "date": "2017-06-13"
+      },
+      "verification_status": "claim_verified",
+      "comparability": "direct_implementation",
+      "outcome_attribution": "explicit",
+      "comparability_reason": "The company documents its own automation program and the source explicitly attributes the productivity outcome to it.",
+      "selection_reason": "Direct implementation with explicit attribution; quantified revenue/FTE and headcount outcome."
+    },
+    {
+      "id": "ponce-financial-2024",
+      "organization": "Ponce Financial Group",
+      "intervention": "Salesforce process automation + document workflow digitization",
+      "what_it_establishes": "A bank's own process-automation and document-digitization program with reported returns.",
+      "metrics": [
+        {
+          "label": "Document storage/handling cost",
+          "value": "reduced",
+          "direction": "reduction",
+          "passage": "We are beginning to see returns on these investments in the form of time-saving efficiencies, reduced costs of document storage, handling and destruction, and a more comprehensive view of our customer relationships and opportunities."
+        },
+        {
+          "label": "Time savings",
+          "value": "reported efficiencies",
+          "direction": "reduction",
+          "passage": "Our investment in Salesforce process automation and the digitization of our document workflows, which we began in 2021 ... We are beginning to see returns on these investments in the form of time-saving efficiencies."
+        }
+      ],
+      "source": {
+        "title": "Ponce Financial Group (SEC exhibit)",
+        "url": "https://www.sec.gov/Archives/edgar/data/1874071/000095017025087092/pdlb-ex99_1.htm",
+        "type": "SEC exhibit (earnings release)",
+        "date": "2025-07-24"
+      },
+      "verification_status": "claim_verified",
+      "comparability": "direct_implementation",
+      "outcome_attribution": "explicit",
+      "comparability_reason": "The company documents its own process-automation and document-digitization program and attributes returns to it.",
+      "selection_reason": "Direct implementation with explicit attribution; process + document workflow automation."
+    },
+    {
+      "id": "fvcbankcorp-rpa-2024",
+      "organization": "FVCBankcorp, Inc.",
+      "intervention": "Robotic process automation for repetitive reporting and process work",
+      "what_it_establishes": "A bank's own RPA implementation with processing-time and hours-saved outcomes.",
+      "metrics": [
+        {
+          "label": "Processing time",
+          "value": "hours -> minutes",
+          "direction": "reduction",
+          "passage": "Robotic process automation have reduced risk of error and reduced processing time from hours to minutes."
+        },
+        {
+          "label": "Manual hours saved",
+          "value": "hundreds of hours",
+          "direction": "reduction",
+          "passage": "Collectively hundreds of hours have been saved on daily, weekly, monthly and periodic repetitive manual processes."
+        }
+      ],
+      "source": {
+        "title": "FVCBankcorp annual meeting presentation (SEC exhibit)",
+        "url": "https://www.sec.gov/Archives/edgar/data/1675644/000167564424000082/microsofpowerpoint-2024a.htm",
+        "type": "SEC exhibit (earnings release)",
+        "date": "2024-05-01"
+      },
+      "verification_status": "claim_verified",
+      "comparability": "direct_implementation",
+      "outcome_attribution": "explicit",
+      "comparability_reason": "The bank documents its own RPA implementation and attributes processing-time and hour savings to it.",
+      "selection_reason": "Direct implementation with explicit attribution; quantified processing-time and hours-saved outcomes."
+    },
+    {
+      "id": "bpo-canadiantire-docdigitization-2007",
+      "organization": "BPO Management Services / Canadian Tire",
+      "intervention": "Document management system for credit-card and banking document capture",
+      "what_it_establishes": "A document-digitization implementation with multiple attributed business outcomes.",
+      "metrics": [
+        {
+          "label": "Approval unit cost",
+          "value": "lower unit cost",
+          "direction": "reduction",
+          "passage": "Results: Faster approval of credit card and loan applications at a lower unit cost"
+        },
+        {
+          "label": "Data capture accuracy",
+          "value": "improved",
+          "direction": "increase",
+          "passage": "Improved accuracy of data captured"
+        },
+        {
+          "label": "Peak-volume staffing",
+          "value": "handled without peak staffing",
+          "direction": "reduction",
+          "passage": "Ability to deal with high business volumes during holiday seasons without having to staff to meet peak demand period"
+        }
+      ],
+      "source": {
+        "title": "BPO Management Services (SEC exhibit)",
+        "url": "https://www.sec.gov/Archives/edgar/data/1015920/000114420407008510/v066167_ex99-1.htm",
+        "type": "SEC exhibit (earnings release)",
+        "date": "2007-03-01"
+      },
+      "verification_status": "claim_verified",
+      "comparability": "direct_implementation",
+      "outcome_attribution": "explicit",
+      "comparability_reason": "A document-management implementation with results explicitly listed as the outcome of the deployment.",
+      "selection_reason": "Direct implementation with explicit attribution; multiple documented business outcomes."
+    },
+    {
+      "id": "therealreal-automation-2020",
+      "organization": "TheRealReal, Inc.",
+      "intervention": "Automation of pricing, copywriting, and photo retouching",
+      "what_it_establishes": "A company's own automation of repetitive content/pricing work at scale.",
+      "metrics": [
+        {
+          "label": "Unit volume automated (pricing)",
+          "value": "80%",
+          "direction": "scale",
+          "passage": "We exited Q4 automating the pricing of 80% of unit volume, copywriting of 84% (including product title and description), and photo retouching of 85%."
+        },
+        {
+          "label": "Unit volume automated (copywriting)",
+          "value": "84%",
+          "direction": "scale",
+          "passage": "automating the pricing of 80% of unit volume, copywriting of 84% (including product title and description), and photo retouching of 85%."
+        }
+      ],
+      "source": {
+        "title": "TheRealReal, Inc. (SEC exhibit)",
+        "url": "https://www.sec.gov/Archives/edgar/data/1573221/000156459021007159/real-ex992_6.htm",
+        "type": "SEC exhibit (earnings release)",
+        "date": "2021-02-25"
+      },
+      "verification_status": "claim_verified",
+      "comparability": "direct_implementation",
+      "outcome_attribution": "uncertain",
+      "comparability_reason": "The company documents its own automation of pricing/copywriting/retouching at scale, but the financial benefit is stated as an expectation, not a reported result.",
+      "selection_reason": "Direct implementation; scale reported, but attribution of the business benefit is not yet established (partial)."
+    }
+  ]
+}
