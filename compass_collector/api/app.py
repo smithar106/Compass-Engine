@@ -36,6 +36,7 @@ from compass_collector.api.organization_router import router as organization_rou
 from compass_collector.api.enrichment_router import router as enrichment_router
 from compass_collector.api.outcome_router import router as outcome_router
 from compass_collector.api.coverage_router import router as coverage_router
+from compass_collector.api.verified_router import router as verified_router
 from compass_collector.api.quality_router import router as quality_router
 from compass_collector.api.pages_router import router as pages_router
 
@@ -55,6 +56,7 @@ app.include_router(organization_router)
 app.include_router(enrichment_router)
 app.include_router(outcome_router)
 app.include_router(coverage_router)
+app.include_router(verified_router)
 app.include_router(quality_router)
 app.include_router(pages_router)
 
